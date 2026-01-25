@@ -1,9 +1,9 @@
 version: '3.8'
-
 services:
-  vllm-server:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-server
+  # Ollama 서버 (GGUF 모델)
+  ollama-server:
+    image: ollama/ollama:latest
+    container_name: ollama-server
     runtime: nvidia
     deploy:
       resources:
@@ -13,35 +13,19 @@ services:
               count: all
               capabilities: [gpu]
     volumes:
-      # Hugging Face 캐시 디렉터리 마운트
-      - /root/.cache/huggingface:/root/.cache/huggingface
+      # GGUF 모델 파일 마운트 (Ollama가 사용할 수 있도록)
+      - /mnt/shared_models/llm/gemma-3-27b-it-GGUF:/models:ro
+      # Ollama 데이터 디렉터리 (모델 캐시 등)
+      - ollama-data:/root/.ollama
     environment:
-      # Hugging Face 토큰 (환경변수에서 가져옴)
-      - HF_TOKEN=${HF_TOKEN}
+      # CUDA 설정
+      - CUDA_VISIBLE_DEVICES=0
     ports:
-      - "8002:8000"
-    ipc: host
-    # vLLM 0.13+ 호환: 모델을 positional argument로 제공
-    # Docker 이미지의 entrypoint가 이미 'vllm serve'를 포함하므로 모델만 명시
-    # RTX 3090 (24GB) - GPT-SoVITS와 공존 설정 (GPT-SoVITS가 2GB 사용 중)
-    # 동시 접속 10명 이상 + 긴 컨텍스트 지원을 위한 최적 설정 (2026-01-26)
-    # 계산: GPT-SoVITS 2GB + vLLM 모델 14GB + KV Cache 8GB = 총 24GB (안전)
-    command:
-      - unsloth/gemma-3-27b-it-bnb-4bit
-      - --tensor-parallel-size
-      - "1"
-      - --dtype
-      - auto
-      - --quantization
-      - bitsandbytes
-      - --max-model-len
-      - "4096"  # 긴 컨텍스트 지원 (요약 기능 포함 시 30턴+)
-      - --gpu-memory-utilization
-      - "0.82"  # KV Cache 메모리 할당
-      - --max-num-seqs
-      - "12"    # 동시 접속 10-12명 지원
-      - --port
-      - "8000"
-      - --host
-      - 0.0.0.0
+      - "11434:11434"  # Ollama API 포트
     restart: unless-stopped
+    # 참고: Ollama 실행 후 모델 등록 필요
+    # docker exec -it ollama-server ollama create gemma-3-27b-it -f /models/gemma-3-27b-it-UD-Q4_K_XL.gguf
+
+volumes:
+  ollama-data:
+    driver: local

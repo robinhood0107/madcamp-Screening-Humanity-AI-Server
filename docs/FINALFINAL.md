@@ -1,7 +1,7 @@
 ---
 name: Avatar Forge 최종 통합 명세서
 overview: Avatar Forge 전체 아키텍처·단계별 구현 계획·API 명세·VRAM 전략·컨테이너 전략을 하나로 통합한 최종 기준 문서
-version: 1.11.0
+version: 1.12.0
 lastUpdated: 2026-01-26
 ---
 
@@ -689,7 +689,11 @@ function handle_request(type, payload):
 
 **⚠️ 중요**: vLLM과 GPT-SoVITS 설치가 완료되었으므로, 이제 서비스 구동 및 연결 설정이 필요합니다.
 
-**1단계: Server A - vLLM 서버 실행**
+**1단계: Server A - LLM 서버 실행 (vLLM 또는 Ollama 선택)**
+
+**⚠️ 중요**: vLLM과 Ollama는 동시에 실행할 수 없습니다 (VRAM 제약). 하나만 선택하여 사용하세요.
+
+**옵션 A: vLLM 서버 실행 (BitsAndBytes 4-bit 양자화)**
 
 **방법 1: 로컬 모델 파일 사용 (이미 다운로드된 경우, 권장)**
 
@@ -728,10 +732,108 @@ docker run --runtime nvidia --gpus all \
     --max-model-len 8192
 ```
 
+**방법 3: Docker Compose 사용 (권장)**
+
+```bash
+# vLLM 서버만 실행
+docker-compose --profile vllm up -d vllm-server
+
+# 상태 확인
+docker-compose ps
+
+# 로그 확인
+docker-compose logs -f vllm-server
+
+# 중지
+docker-compose --profile vllm stop vllm-server
+```
+
+**옵션 B: Ollama 서버 실행 (GGUF 모델)**
+
+**사전 요구사항**: GGUF 모델 다운로드 완료 (위의 "방법 3: Ollama용 GGUF 모델 다운로드" 참조)
+
+**방법 1: Docker Compose 사용 (권장)**
+
+```bash
+# Ollama 서버 실행
+docker-compose --profile ollama up -d ollama-server
+
+# 상태 확인
+docker-compose ps
+
+# 로그 확인
+docker-compose logs -f ollama-server
+
+# Ollama에 모델 등록
+docker exec -it ollama-server ollama create gemma-3-27b-it -f /models/gemma-3-27b-it-UD-Q4_K_XL.gguf
+
+# 또는 Modelfile 사용
+docker exec -it ollama-server ollama create gemma-3-27b-it -f - <<EOF
+FROM /models/gemma-3-27b-it-UD-Q4_K_XL.gguf
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+EOF
+
+# 모델 실행 테스트
+docker exec -it ollama-server ollama run gemma-3-27b-it "Hello, how are you?"
+```
+
+**방법 2: 직접 Docker 실행**
+
+```bash
+# Ollama 서버 실행
+docker run -d --gpus all \
+    -v /mnt/shared_models/llm/gemma-3-27b-it-GGUF:/models:ro \
+    -v ollama-data:/root/.ollama \
+    -p 11434:11434 \
+    --name ollama-server \
+    ollama/ollama:latest
+
+# 모델 등록 및 실행 (위의 "방법 1" 참조)
+```
+
+**Ollama API 사용**:
+
+```bash
+# 채팅 API 호출 예시
+curl http://localhost:11434/api/generate -d '{
+  "model": "gemma-3-27b-it",
+  "prompt": "Hello, how are you?",
+  "stream": false
+}'
+```
+
+**vLLM vs Ollama 비교**:
+
+| 항목 | vLLM | Ollama |
+|------|------|--------|
+| 모델 형식 | BitsAndBytes 4-bit | GGUF (Q4_K_XL) |
+| 용량 | ~14GB | ~16.8GB |
+| 성능 | 높은 처리량 (동시 접속 10-12명) | 중간 처리량 |
+| 설정 복잡도 | 중간 | 낮음 |
+| API 호환성 | OpenAI 호환 | Ollama API |
+| 추천 용도 | 프로덕션, 높은 동시 접속 | 개발/테스트, 간단한 설정 |
+
 **⚠️ 참고**:
 - **방법 1 (로컬 파일)**: 이미 다운로드된 모델 사용, 빠른 시작, 네트워크 불필요
 - **방법 2 (HF 자동 다운로드)**: 처음 실행 시 자동 다운로드, Hugging Face 토큰 필요 (일부 모델)
 - 두 방법 모두 동일하게 작동하며, 방법 1이 더 빠릅니다
+
+**방법 3: Ollama용 GGUF 모델 다운로드 (Q4_K_XL 양자화)**
+
+Ollama를 사용하려면 GGUF 형식의 모델이 필요합니다. Q4_K_XL 양자화 버전을 다운로드합니다 (~16.8GB).
+
+```bash
+# GGUF 모델 다운로드 (Q4_K_XL)
+python3 -c "from huggingface_hub import hf_hub_download; import os; os.makedirs('/mnt/shared_models/llm/gemma-3-27b-it-GGUF', exist_ok=True); hf_hub_download(repo_id='unsloth/gemma-3-27b-it-GGUF', filename='gemma-3-27b-it-UD-Q4_K_XL.gguf', local_dir='/mnt/shared_models/llm/gemma-3-27b-it-GGUF', local_dir_use_symlinks=False); print('✅ 다운로드 완료')"
+```
+
+**다운로드 확인**:
+```bash
+ls -lh /mnt/shared_models/llm/gemma-3-27b-it-GGUF/
+# gemma-3-27b-it-UD-Q4_K_XL.gguf 파일이 있어야 함 (~16.8GB)
+```
 
 **기존 모델 삭제 (방법 2로 전환하기 전)**:
 
@@ -1052,8 +1154,18 @@ import logging
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Avatar Forge LLM Service")
 
-# vLLM 서버 URL (내부)
-VLLM_BASE_URL = "http://localhost:8002"  # vLLM OpenAI API 호환 엔드포인트
+# LLM 서버 URL (내부) - 환경 변수로 선택
+import os
+LLM_SERVICE = os.getenv("LLM_SERVICE", "vllm")  # "vllm" 또는 "ollama"
+
+if LLM_SERVICE == "vllm":
+    LLM_BASE_URL = "http://localhost:8002"  # vLLM OpenAI API 호환 엔드포인트
+    LLM_API_PATH = "/v1/chat/completions"
+elif LLM_SERVICE == "ollama":
+    LLM_BASE_URL = "http://localhost:11434"  # Ollama API
+    LLM_API_PATH = "/api/chat"
+else:
+    raise ValueError(f"Unknown LLM_SERVICE: {LLM_SERVICE}")
 
 class Message(BaseModel):
     role: str  # 'user' | 'assistant' | 'system'
@@ -1084,27 +1196,51 @@ async def chat(request: ChatRequest):
         for msg in request.messages:
             messages.append({"role": msg.role, "content": msg.content})
         
-        # vLLM OpenAI API 호환 엔드포인트 호출
+        # LLM 서비스 호출 (케이스별 분기)
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{VLLM_BASE_URL}/v1/chat/completions",
-                json={
-                    "model": request.model,  # vLLM에서 모델 선택
-                    "messages": messages,
-                    "temperature": request.temperature,
-                    "max_tokens": request.max_tokens
-                },
-                timeout=60.0
-            )
-            result = response.json()
-        
-        return {
-            "content": result["choices"][0]["message"]["content"],
-            "usage": {
-                "prompt_tokens": result["usage"]["prompt_tokens"],
-                "completion_tokens": result["usage"]["completion_tokens"]
-            }
-        }
+            if LLM_SERVICE == "vllm":
+                # 케이스 A: vLLM OpenAI API 호환 엔드포인트 호출
+                response = await client.post(
+                    f"{LLM_BASE_URL}{LLM_API_PATH}",
+                    json={
+                        "model": request.model,  # vLLM에서 모델 선택
+                        "messages": messages,
+                        "temperature": request.temperature,
+                        "max_tokens": request.max_tokens
+                    },
+                    timeout=60.0
+                )
+                result = response.json()
+                return {
+                    "content": result["choices"][0]["message"]["content"],
+                    "usage": {
+                        "prompt_tokens": result["usage"]["prompt_tokens"],
+                        "completion_tokens": result["usage"]["completion_tokens"]
+                    }
+                }
+            elif LLM_SERVICE == "ollama":
+                # 케이스 B: Ollama API 호출
+                response = await client.post(
+                    f"{LLM_BASE_URL}{LLM_API_PATH}",
+                    json={
+                        "model": request.model,  # Ollama 모델 이름
+                        "messages": messages,
+                        "stream": False,
+                        "options": {
+                            "temperature": request.temperature,
+                            "num_predict": request.max_tokens
+                        }
+                    },
+                    timeout=60.0
+                )
+                result = response.json()
+                return {
+                    "content": result["message"]["content"],
+                    "usage": {
+                        "prompt_tokens": result.get("prompt_eval_count", 0),
+                        "completion_tokens": result.get("eval_count", 0)
+                    }
+                }
     except Exception as e:
         logger.error(f"LLM 추론 오류: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1587,12 +1723,20 @@ Server B Backend (FastAPI)는 다음 API 문서 엔드포인트를 제공합니�
 
 **참고**: vLLM (Server A)은 FastAPI 기반이 아니므로 `/docs`, `/redoc`, `/openapi.json` 같은 엔드포인트를 제공하지 않습니다. 대신 OpenAI API 표준을 따르며, OpenAI API 공식 문서를 참고하세요.
 
-### 5.4 채팅 API (vLLM, 2가지 모델 선택 가능)
+### 5.4 채팅 API (LLM 서비스 선택: vLLM 또는 Ollama)
 
 `POST /api/chat`
 
-LLM을 통해 캐릭터와 대화합니다.  
-기본 LLM은 **Gemma 3 27B IT(vLLM)** 이며, 선택적으로 **Dolphin 2.9 8B(무검열 프로필)**을 사용할 수 있습니다.
+LLM을 통해 캐릭터와 대화합니다.
+
+**⚠️ 중요**: vLLM과 Ollama 중 하나만 선택하여 사용합니다. 환경 변수 `LLM_SERVICE`로 선택합니다.
+
+---
+
+#### 케이스 A: vLLM 사용
+
+**기본 LLM**: **Gemma 3 27B IT (BitsAndBytes 4-bit)**  
+**선택 모델**: **Dolphin 2.9 8B (무검열 프로필)**
 
 요청(JSON):
 ```json
@@ -1611,9 +1755,9 @@ LLM을 통해 캐릭터와 대화합니다.
 | persona     | string    | ❌   | 캐릭터 성격 설명                       |
 | temperature | number    | ❌   | 창의성 (0.0~1.0, 기본: 0.7)            |
 | max_tokens  | number    | ❌   | 최대 응답 길이 (기본: 512)             |
-| model       | string    | ❌   | `"gemma-3-27b-it"`(기본) 또는 `"dolphin-2.9-8b"` |
+| model       | string    | ❌   | **케이스 A (vLLM)**: `"gemma-3-27b-it"`(기본) 또는 `"dolphin-2.9-8b"`<br>**케이스 B (Ollama)**: `"gemma-3-27b-it"` |
 
-응답(JSON):
+응답(JSON) - 케이스 A (vLLM):
 ```json
 {
   "success": true,
@@ -2693,6 +2837,7 @@ avatar-forge/
 
 | 버전  | 날짜       | 변경 내용 |
 |------:|------------|----------|
+| 1.12.0 | 2026-01-26 | Ollama 지원 추가: GGUF 모델 다운로드 방법 추가 (gemma-3-27b-it-UD-Q4_K_XL.gguf, ~16.8GB). docker-compose.yml 생성 (vLLM과 Ollama 선택 가능, 프로필 기반 실행). vLLM vs Ollama 비교 및 사용 가이드 추가. |
 | 1.11.0 | 2026-01-26 | 리버스 프록시 설정 정보 업데이트: vLLM 프록시 설정을 `172.17.0.1:8000` (Docker bridge 게이트웨이 IP, 컨테이너 내부 포트)로 통일. API 문서 엔드포인트 정보 추가 (`/docs`, `/redoc`, `/api/openapi.json`). 문서 간 정합성 개선. |
 | 1.10.0 | 2026-01-26 | 동시 접속 5명일 때 컨텍스트 길이 계산 추가: vLLM 공식 문서 기반으로 max_num_seqs=5일 때 max_model_len=8192 지원 가능 분석 추가. KV Cache 메모리 계산 및 옵션별 비교 (8192/6144/5120 토큰). |
 | 1.9.0 | 2026-01-26 | Phase 5 핵심 기능 추가: 컨텍스트 절약 요약 기능 구현 계획 (Phase 5.2, 필수), 동시 접속 제한 구현 계획 (Phase 5.3, 최대 20명, 필수), Frontend 턴 제한 제거 (Phase 5.4, 무제한 대화 지원). 각 문서에 상세 구현 가이드 추가 (FINALFINAL.md, PHASE5_SETUP.md, Backend_프로젝트_현황_명세서.md, Front_PROJECT_SPECIFICATION.md). 컨텍스트 길이 최적화 분석 추가 (4096 권장, 요약 기능 필수). |

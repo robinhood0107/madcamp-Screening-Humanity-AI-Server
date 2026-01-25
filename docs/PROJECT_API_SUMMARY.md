@@ -21,8 +21,12 @@
 프로젝트는 3개의 주요 서버에서 API를 제공합니다:
 
 - **Server B Backend (FastAPI)**: 외부에 노출되는 메인 API (포트 8000)
-- **Server A vLLM**: LLM 서비스 API (포트 8002)
+- **Server A LLM 서비스**: LLM 서비스 API
+  - **케이스 A: vLLM** (포트 8002) - OpenAI 호환 API
+  - **케이스 B: Ollama** (포트 11434) - Ollama 자체 API
 - **Server A GPT-SoVITS**: TTS 서비스 API (포트 9880)
+
+**⚠️ 중요**: vLLM과 Ollama는 동시에 실행할 수 없습니다 (VRAM 제약). 하나만 선택하여 사용하세요.
 
 ---
 
@@ -60,7 +64,9 @@
     }
   }
   ```
-- **내부 호출**: `POST http://server-a:8002/v1/chat/completions` (vLLM)
+- **내부 호출**: 
+  - **케이스 A (vLLM)**: `POST http://server-a:8002/v1/chat/completions`
+  - **케이스 B (Ollama)**: `POST http://server-a:11434/api/chat`
 - **⚠️ 미구현 기능**:
   - 컨텍스트 절약 요약 기능 (Phase 5.2)
   - 동시 접속 제한 (Phase 5.3)
@@ -203,7 +209,17 @@
 
 ---
 
-## 3. Server A vLLM API (내부 호출)
+## 3. Server A LLM API (내부 호출)
+
+**⚠️ 중요**: vLLM과 Ollama 중 하나만 선택하여 사용합니다.
+
+---
+
+### 케이스 A: vLLM API (OpenAI 호환)
+
+**포트**: 8002 (외부) → 8000 (내부 컨테이너)  
+**기본 URL**: `http://server-a:8002` 또는 `http://localhost:8002`  
+**API 표준**: OpenAI 호환 API
 
 **포트**: 8002 (Docker 포트 매핑)  
 **내부 URL**: `http://localhost:8002` 또는 `http://172.17.0.4:8002`  
@@ -297,12 +313,121 @@ vLLM은 OpenAI 호환 API를 제공하지만, Swagger/ReDoc 같은 대화형 API
 - `POST /v1/responses` - 텍스트 생성 (OpenAI Responses API 호환)
 - `POST /v1/embeddings` - 임베딩
 - `POST /v1/audio/transcriptions` - 음성 인식
-- `POST /v1/audio/translations` - 음성 번역
-- `POST /tokenize`, `POST /detokenize` - 토크나이저
-- `POST /pooling` - Pooling 모델
-- `POST /classify` - 분류
-- `POST /score` - 점수 예측
-- `POST /rerank`, `POST /v1/rerank`, `POST /v2/rerank` - 재순위
+
+---
+
+### 케이스 B: Ollama API
+
+**포트**: 11434  
+**기본 URL**: `http://server-a:11434` 또는 `http://localhost:11434`  
+**API 표준**: Ollama 자체 API
+
+#### `POST /api/chat` ✅ **사용 중 (채팅용)**
+- **용도**: 채팅 완료 생성 (메시지 히스토리 지원)
+- **호출자**: Server B Backend (`/api/chat`)
+- **요청 예시**:
+  ```json
+  {
+    "model": "gemma-3-27b-it",
+    "messages": [
+      {"role": "system", "content": "당신은 친절한 AI 어시스턴트입니다."},
+      {"role": "user", "content": "안녕하세요"}
+    ],
+    "stream": false,
+    "options": {
+      "temperature": 0.7,
+      "num_predict": 512
+    }
+  }
+  ```
+- **응답 예시**:
+  ```json
+  {
+    "model": "gemma-3-27b-it",
+    "created_at": "2026-01-26T12:00:00Z",
+    "message": {
+      "role": "assistant",
+      "content": "안녕하세요! 무엇을 도와드릴까요?"
+    },
+    "done": true,
+    "total_duration": 1234567890,
+    "load_duration": 1234567,
+    "prompt_eval_count": 10,
+    "prompt_eval_duration": 1234567,
+    "eval_count": 20,
+    "eval_duration": 1234567890
+  }
+  ```
+
+#### `GET /api/tags` ✅ **사용 가능**
+- **용도**: 사용 가능한 모델 목록 조회
+- **호출자**: Server B Backend (`/api/chat/models`)
+- **응답 예시** (공식 문서 기준):
+  ```json
+  {
+    "models": [
+      {
+        "name": "gemma-3-27b-it",
+        "modified_at": "2026-01-26T12:00:00Z",
+        "size": 16800000000,
+        "digest": "sha256:abc123...",
+        "details": {
+          "format": "gguf",
+          "family": "gemma",
+          "families": ["gemma"],
+          "parameter_size": "27B",
+          "quantization_level": "Q4_K_XL"
+        }
+      }
+    ]
+  }
+  ```
+
+#### `GET /api/version` ✅ **사용 가능**
+- **용도**: Ollama 버전 정보 조회
+- **응답 예시**:
+  ```json
+  {
+    "version": "0.1.0"
+  }
+  ```
+
+#### `POST /api/generate` ⚠️ **참고용 (채팅에는 사용하지 않음)**
+- **용도**: 단순 프롬프트 기반 텍스트 생성 (메시지 히스토리 미지원)
+- **참고**: 채팅 기능에는 `/api/chat`를 사용해야 합니다
+- **요청 예시**:
+  ```json
+  {
+    "model": "gemma-3-27b-it",
+    "prompt": "안녕하세요",
+    "stream": false,
+    "options": {
+      "temperature": 0.7,
+      "num_predict": 512
+    }
+  }
+  ```
+- **응답 예시**:
+  ```json
+  {
+    "model": "gemma-3-27b-it",
+    "created_at": "2026-01-26T12:00:00Z",
+    "response": "안녕하세요! 무엇을 도와드릴까요?",
+    "done": true,
+    "prompt_eval_count": 10,
+    "eval_count": 20
+  }
+  ```
+- **⚠️ 주의**: `/api/generate`는 `prompt`만 사용하고 `messages`를 지원하지 않으므로, 채팅 기능에는 `/api/chat`를 사용해야 합니다
+
+**⚠️ 참고**: 
+- Ollama는 OpenAI 호환 API를 제공하지 않습니다.
+- Server B Backend에서 Ollama를 사용하려면 API 호출 코드를 수정해야 합니다.
+- 모델 이름은 Ollama에 등록된 이름을 사용합니다 (예: `gemma-3-27b-it`).
+
+**참고 문서**:
+- **Ollama 공식 문서**: https://docs.ollama.com/api/introduction
+- **프로젝트 내 문서**: `docs/FINALFINAL.md`의 "옵션 B: Ollama 서버 실행" 섹션
 
 ---
 

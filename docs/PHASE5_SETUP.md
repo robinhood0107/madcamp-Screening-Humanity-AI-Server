@@ -642,8 +642,17 @@ import os
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Avatar Forge LLM Service")
 
-# vLLM 서버 URL (내부)
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://vllm-server:8002")
+# LLM 서버 URL (내부) - 환경 변수로 선택
+LLM_SERVICE = os.getenv("LLM_SERVICE", "vllm")  # "vllm" 또는 "ollama"
+
+if LLM_SERVICE == "vllm":
+    LLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://vllm-server:8002")
+    LLM_API_PATH = "/v1/chat/completions"
+elif LLM_SERVICE == "ollama":
+    LLM_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama-server:11434")
+    LLM_API_PATH = "/api/chat"
+else:
+    raise ValueError(f"Unknown LLM_SERVICE: {LLM_SERVICE}")
 
 class Message(BaseModel):
     role: str  # 'user' | 'assistant' | 'system'
@@ -674,27 +683,51 @@ async def chat(request: ChatRequest):
         for msg in request.messages:
             messages.append({"role": msg.role, "content": msg.content})
         
-        # vLLM OpenAI API 호환 엔드포인트 호출
+        # LLM 서비스 호출 (케이스별 분기)
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{VLLM_BASE_URL}/v1/chat/completions",
-                json={
-                    "model": request.model,
-                    "messages": messages,
-                    "temperature": request.temperature,
-                    "max_tokens": request.max_tokens
-                },
-                timeout=60.0
-            )
-            result = response.json()
-        
-        return {
-            "content": result["choices"][0]["message"]["content"],
-            "usage": {
-                "prompt_tokens": result["usage"]["prompt_tokens"],
-                "completion_tokens": result["usage"]["completion_tokens"]
-            }
-        }
+            if LLM_SERVICE == "vllm":
+                # 케이스 A: vLLM OpenAI API 호환 엔드포인트 호출
+                response = await client.post(
+                    f"{LLM_BASE_URL}{LLM_API_PATH}",
+                    json={
+                        "model": request.model,
+                        "messages": messages,
+                        "temperature": request.temperature,
+                        "max_tokens": request.max_tokens
+                    },
+                    timeout=60.0
+                )
+                result = response.json()
+                return {
+                    "content": result["choices"][0]["message"]["content"],
+                    "usage": {
+                        "prompt_tokens": result["usage"]["prompt_tokens"],
+                        "completion_tokens": result["usage"]["completion_tokens"]
+                    }
+                }
+            elif LLM_SERVICE == "ollama":
+                # 케이스 B: Ollama API 호출
+                response = await client.post(
+                    f"{LLM_BASE_URL}{LLM_API_PATH}",
+                    json={
+                        "model": request.model,
+                        "messages": messages,
+                        "stream": False,
+                        "options": {
+                            "temperature": request.temperature,
+                            "num_predict": request.max_tokens
+                        }
+                    },
+                    timeout=60.0
+                )
+                result = response.json()
+                return {
+                    "content": result["message"]["content"],
+                    "usage": {
+                        "prompt_tokens": result.get("prompt_eval_count", 0),
+                        "completion_tokens": result.get("eval_count", 0)
+                    }
+                }
     except Exception as e:
         logger.error(f"LLM 추론 오류: {e}")
         raise HTTPException(status_code=500, detail=str(e))

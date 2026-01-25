@@ -364,12 +364,68 @@ madcamp-Screening-Humanity-BACK/
     1. 동시 접속 제한 확인 (`ConcurrentUserLimiter`)
     2. 세션 ID 생성/조회 (없으면 자동 생성)
     3. 컨텍스트 관리자로 대화 히스토리 관리 및 자동 요약 (`ContextManager`)
-    4. Server A의 LLM 서비스 URL 구성 (`GPU_SERVER_URL`의 포트를 8002로 변경)
+    4. Server A의 LLM 서비스 URL 구성
     5. `httpx.AsyncClient`로 비동기 HTTP 요청
     6. 성공 시 Server A 응답 반환 (세션 ID 포함)
     7. 실패 시 Mock 응답 반환 (개발용)
   - **타임아웃**: 60초
   - **에러 처리**: 예외 발생 시 Mock 응답으로 폴백
+  
+  **⚠️ 중요: LLM 서비스 선택 (케이스별 구현 필요)**
+  
+  **케이스 A: vLLM 사용**
+  - Server A URL: `http://server-a:8002/v1/chat/completions`
+  - 요청 형식: OpenAI 호환 형식
+    ```json
+    {
+      "model": "unsloth/gemma-3-27b-it-bnb-4bit",
+      "messages": [...],
+      "temperature": 0.7,
+      "max_tokens": 512
+    }
+    ```
+  - 응답 형식: OpenAI 호환 형식
+    ```json
+    {
+      "choices": [{
+        "message": {"role": "assistant", "content": "..."},
+        "finish_reason": "stop"
+      }],
+      "usage": {"prompt_tokens": 10, "completion_tokens": 20}
+    }
+    ```
+  
+  **케이스 B: Ollama 사용**
+  - Server A URL: `http://server-a:11434/api/chat`
+  - 요청 형식: Ollama 자체 형식
+    ```json
+    {
+      "model": "gemma-3-27b-it",
+      "messages": [...],
+      "stream": false,
+      "options": {
+        "temperature": 0.7,
+        "num_predict": 512
+      }
+    }
+    ```
+  - 응답 형식: Ollama 자체 형식
+    ```json
+    {
+      "model": "gemma-3-27b-it",
+      "message": {"role": "assistant", "content": "..."},
+      "done": true,
+      "prompt_eval_count": 10,
+      "eval_count": 20
+    }
+    ```
+  
+  **구현 시 주의사항**:
+  - 환경 변수로 LLM 서비스 선택: `LLM_SERVICE=vllm` 또는 `LLM_SERVICE=ollama`
+  - 응답 파싱 로직이 다르므로 케이스별로 분기 처리 필요
+  - 토큰 사용량 필드명이 다름:
+    - vLLM: `usage.prompt_tokens`, `usage.completion_tokens`
+    - Ollama: `prompt_eval_count`, `eval_count`
 
   **`GET /api/chat/models`**:
   - 사용 가능한 LLM 모델 목록 반환
