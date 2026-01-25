@@ -1,8 +1,8 @@
 ---
 name: Avatar Forge 최종 통합 명세서
 overview: Avatar Forge 전체 아키텍처·단계별 구현 계획·API 명세·VRAM 전략·컨테이너 전략을 하나로 통합한 최종 기준 문서
-version: 1.5.0
-lastUpdated: 2026-01-23
+version: 1.11.0
+lastUpdated: 2026-01-26
 ---
 
 # Avatar Forge 최종 통합 명세서 (FINALFINAL)
@@ -21,6 +21,37 @@ lastUpdated: 2026-01-23
 10. [에러 핸들링·모니터링·헬스체크](#10-에러-핸들링모니터링헬스체크)
 11. [보안·한계·리스크 관리](#11-보안한계리스크-관리)
 12. [변경 이력](#12-변경-이력)
+
+---
+
+## ⚠️ 미구현 기능 목록 (2026-01-26)
+
+### Phase 5 관련 미구현 기능
+
+1. **Phase 5.2: 컨텍스트 절약 요약 기능** (필수, 미구현)
+   - 구현 위치: `server-b/backend/app/services/context_manager.py` (신규 생성)
+   - 구현 시기: Phase 5.1 완료 후 즉시
+   - 상세 내용: [5.4 채팅 API](#54-채팅-api-vllm-2가지-모델-선택-가능) 섹션 참조
+
+2. **Phase 5.3: 동시 접속 제한** (필수, 미구현)
+   - 구현 위치: `server-b/backend/app/core/rate_limiter.py` (신규 생성)
+   - 구현 시기: Phase 5.1 완료 후 즉시
+   - 상세 내용: [5.4 채팅 API](#54-채팅-api-vllm-2가지-모델-선택-가능) 섹션 참조
+
+3. **Phase 5.4: Frontend 턴 제한 제거** (미구현)
+   - 구현 위치: `components/chat-room.tsx`
+   - 구현 시기: Phase 5.1 완료 후
+   - 상세 내용: `docs/Front_PROJECT_SPECIFICATION.md` 참조
+
+### 기타 미구현 기능
+
+4. **TTS 음성 목록 조회 API** (`GET /api/tts/voices`)
+   - 구현 시기: Phase 5.1 이후 (우선순위: 중간)
+
+5. **Server A 참조 오디오 목록 조회**
+   - 구현 시기: Phase 5.1 이후 (우선순위: 낮음)
+
+**상세 구현 가이드**: `docs/PHASE5_SETUP.md`의 "Phase 5.2-5.4 구현 가이드" 섹션 참조
 
 ---
 
@@ -189,18 +220,56 @@ graph TB
     - `gemma-3-27b-it/`: Gemma 3 27B IT 모델 파일 (4-bit 양자화, ~13-15GB)
     - `dolphin-2.9-8b/`: Dolphin 2.9 8B 모델 파일 (~5-8GB)
     - **대안**: Server A 스토리지가 부족한 경우에만 Server B에 저장 후 HTTP API로 다운로드
-  - vLLM 서버 실행 예시:
+  - vLLM 서버 실행 예시 (공식 Docker 이미지 사용):
+    
+    **방법 1: 로컬 모델 파일 사용 (이미 다운로드된 경우)**
     ```bash
     # Gemma 3 27B IT (4-bit 양자화 버전, Unsloth)
-    vllm serve /mnt/shared_models/llm/gemma-3-27b-it \
-      --port 8002 \
-      --tensor-parallel-size 1 \
-      --dtype auto \
-      --quantization bitsandbytes \
-      --max-model-len 8192
-    
-    # Dolphin 2.9 8B (무검열 프로필, 필요시 별도 서버 인스턴스 또는 모드 스위칭)
+    # 로컬에 이미 모델이 다운로드되어 있는 경우
+    # ⚠️ vLLM 0.13+ 호환: --model 옵션 대신 positional argument 사용
+    docker run --runtime nvidia --gpus all \
+        -v /mnt/shared_models/llm:/models/llm:ro \
+        -p 8002:8000 \
+        --ipc=host \
+        vllm/vllm-openai:latest \
+        /models/llm/gemma-3-27b-it \
+        --tensor-parallel-size 1 \
+        --dtype auto \
+        --quantization bitsandbytes \
+        --max-model-len 8192
     ```
+    
+    **방법 2: Hugging Face에서 자동 다운로드 (공식 문서 형식)**
+    ```bash
+    # 공식 문서: https://docs.vllm.ai/en/stable/deployment/docker/
+    # Hugging Face 모델 ID를 사용하면 자동으로 다운로드
+    # ⚠️ vLLM 0.13+ 호환: --model 옵션 대신 positional argument 사용
+    docker run --runtime nvidia --gpus all \
+        -v ~/.cache/huggingface:/root/.cache/huggingface \
+        --env "HF_TOKEN=$HF_TOKEN" \
+        -p 8002:8000 \
+        --ipc=host \
+        vllm/vllm-openai:latest \
+        unsloth/gemma-3-27b-it-bnb-4bit \
+        --tensor-parallel-size 1 \
+        --dtype auto \
+        --quantization bitsandbytes \
+        --max-model-len 8192
+    
+    # Dolphin 2.9 8B (무검열 프로필)
+    docker run --runtime nvidia --gpus all \
+        -v ~/.cache/huggingface:/root/.cache/huggingface \
+        --env "HF_TOKEN=$HF_TOKEN" \
+        -p 8003:8000 \
+        --ipc=host \
+        vllm/vllm-openai:latest \
+        cognitivecomputations/dolphin-2.9-llama3-8b
+    ```
+    
+    **⚠️ 참고**:
+    - **방법 1**: 이미 다운로드된 모델 사용, 빠른 시작, 네트워크 불필요
+    - **방법 2**: 처음 실행 시 자동 다운로드, Hugging Face 토큰 필요 (일부 모델)
+    - 두 방법 모두 동일하게 작동하며, 방법 1이 더 빠릅니다
   - 운영 가정: LLM이 활성인 동안 다른 대형 모델은 비활성 (VRAM 스위칭)
   - API에서 모델 선택: `/api/chat` 요청 시 `model` 필드로 선택 (`"gemma-3-27b-it"` 또는 `"dolphin-2.9-8b"`)
 
@@ -313,14 +382,655 @@ function handle_request(type, payload):
 
 **목표**: LLM과 TTS를 연동하여 캐릭터와 텍스트/음성으로 대화할 수 있는 기능 구현
 
+**현재 진행 상황 (2026-01-26)**:
+- ✅ vLLM 설치 완료 (Server A, 모델: Gemma 3 27B IT)
+- ✅ GPT-SoVITS 설치 완료 (Server A, Conda 환경)
+- ⏳ GPT-SoVITS WebAPI(api_v2.py) 구동 필요
+- ✅ Backend 구현 완료 (Server B, FastAPI)
+- ✅ Frontend 구현 완료 (Next.js, API 클라이언트 준비됨)
+- ⏳ Server A NPM 설정 필요
+- ⏳ Server B Backend에서 Server A 연결 수정 필요 (Mock 제거)
+
+**컨텍스트 길이 설정 가이드 (2026-01-26)**:
+
+**상황극 턴 수 예상 및 컨텍스트 최적화 분석**:
+
+### 1. 실제 상황극 턴 수 예상
+
+| 시나리오 유형 | 예상 턴 수 | 설명 |
+|--------------|-----------|------|
+| **짧은 상황극** (간단한 질문/답변) | 8-12턴 | 인사, 간단한 대화, 빠른 종료 |
+| **표준 상황극** (일반적인 역할극) | 15-20턴 | 학교, 회사, 병원 등 일반 시나리오 |
+| **긴 상황극** (복잡한 스토리) | 20-25턴 | 갈등 해결, 심화 대화, 스토리 전개 |
+| **최대 한계** (Frontend 제한) | 30턴 | 시스템 상한선 |
+
+**실제 사용 패턴 예상**:
+- 평균: **18-22턴** (대부분의 상황극)
+- 90% 사용자: **15-25턴** 범위
+- 최대: **30턴** (시스템 제한)
+
+### 2. 토큰 사용량 상세 분석 (요약 기능 없음)
+
+| 항목 | 토큰 수 | 상세 |
+|------|--------|------|
+| **고정 오버헤드** | | |
+| 시스템 프롬프트 | 80 | 기본 지시사항, 역할 설정 |
+| 페르소나 설명 | 150 | 캐릭터 성격, 말투, 배경 (상세) |
+| 상황 설정 | 120 | 배경, 상대역, 초기 상황 |
+| **대화 히스토리** | | |
+| 사용자 메시지 (평균) | 60 토큰/턴 | 짧은 대화: 30-50, 긴 대화: 80-120 |
+| AI 응답 (평균) | 80 토큰/턴 | 짧은 응답: 40-60, 긴 응답: 100-150 |
+| 메시지 포맷팅 | 20 토큰/턴 | role, content 구조화 |
+| **턴별 총합** | **160 토큰/턴** | (60 + 80 + 20) |
+| **응답 생성** | | |
+| 최대 응답 생성 | 512 | `max_tokens` 기본값 |
+
+**요약 기능 없을 때 총 토큰 계산**:
+
+| 턴 수 | 대화 히스토리 | 고정 오버헤드 | 응답 생성 | **총합** |
+|------|-------------|-------------|----------|---------|
+| 15턴 | 2,400 | 350 | 512 | **3,262** |
+| 20턴 | 3,200 | 350 | 512 | **4,062** |
+| 25턴 | 4,000 | 350 | 512 | **4,862** |
+| 30턴 | 4,800 | 350 | 512 | **5,662** |
+
+**결론**: 요약 없이는 **30턴을 처리하려면 최소 5,662 토큰 필요** (4096으로는 불가능)
+
+### 3. 컨텍스트 절약 요약 기능 설계
+
+**요약 전략**:
+- **슬라이딩 윈도우**: 최근 N턴은 전체 유지, 그 이전은 요약
+- **요약 시점**: 컨텍스트가 80% 사용 시 자동 요약
+- **요약 비율**: 오래된 대화를 10-20%로 압축
+
+**요약 기능 적용 시나리오**:
+
+| 현재 턴 | 유지할 최근 턴 | 요약할 턴 | 요약 후 토큰 | 총 토큰 (요약 포함) |
+|---------|--------------|----------|------------|-------------------|
+| 15턴 | 10턴 (전체) | 5턴 (요약) | 80 토큰 | 2,400 + 80 + 350 + 512 = **3,342** |
+| 20턴 | 12턴 (전체) | 8턴 (요약) | 128 토큰 | 1,920 + 128 + 350 + 512 = **2,910** |
+| 25턴 | 15턴 (전체) | 10턴 (요약) | 160 토큰 | 2,400 + 160 + 350 + 512 = **3,422** |
+| 30턴 | 18턴 (전체) | 12턴 (요약) | 192 토큰 | 2,880 + 192 + 350 + 512 = **3,934** |
+
+**요약 효과**:
+- 15턴: 3,262 → 3,342 (요약 오버헤드로 약간 증가, 하지만 안정적)
+- 20턴: 4,062 → 2,910 (**28% 절약**)
+- 25턴: 4,862 → 3,422 (**30% 절약**)
+- 30턴: 5,662 → 3,934 (**31% 절약**, **4096 내에서 가능!**)
+
+### 4. 최적 컨텍스트 길이 계산
+
+**요약 기능 포함 시나리오**:
+
+| 컨텍스트 길이 | 최대 턴 수 (요약 없음) | 최대 턴 수 (요약 있음) | 안전 마진 |
+|--------------|---------------------|---------------------|----------|
+| **2048** | 10턴 | 18턴 | 200 토큰 |
+| **3072** | 16턴 | 25턴 | 300 토큰 |
+| **4096** | 22턴 | **30턴** | **400 토큰** |
+| **5120** | 28턴 | 30턴+ | 500 토큰 |
+
+**엄격한 권장 설정**:
+
+**옵션 A: 보수적 (요약 기능 필수)**
+- `max_model_len: 3072`
+- 최대 25턴 지원 (요약 포함)
+- 메모리 여유: ~2.5GB KV Cache
+- **권장**: 요약 기능 구현이 확실할 때
+
+**옵션 B: 균형 (요약 기능 권장)**
+- `max_model_len: 4096`
+- 최대 30턴 지원 (요약 포함)
+- 메모리 사용: ~3-4GB KV Cache
+- **권장**: 요약 기능 구현 예정, 안전 마진 확보
+
+**옵션 C: 공격적 (요약 없이도 작동)**
+- `max_model_len: 5120`
+- 최대 30턴 지원 (요약 없음)
+- 메모리 사용: ~4-5GB KV Cache
+- **비권장**: 메모리 부족 위험, GPT-SoVITS와 공존 어려움
+
+### 5. 최종 권장사항
+
+**엄격한 계산 결과**:
+
+1. **요약 기능 구현 필수**
+   - 30턴 지원을 위해서는 반드시 필요
+   - 구현 복잡도: 중간 (LLM으로 이전 대화 요약)
+
+2. **권장 컨텍스트 길이: 4096**
+   - 요약 포함 시 30턴 안전하게 처리 가능
+   - 안전 마진: 400 토큰 (약 10%)
+   - 메모리 사용: RTX 3090에서 GPT-SoVITS와 공존 가능
+
+3. **요약 기능 구현 전략**:
+   - **요약 시점**: 컨텍스트 사용률 80% 도달 시
+   - **유지 턴 수**: 최근 15-18턴 전체 유지
+   - **요약 방식**: LLM으로 "지금까지의 대화 요약" 생성 (50-100 토큰)
+   - **요약 주기**: 5턴마다 또는 필요시
+
+4. **메모리 최적화 설정 (2026-01-26 업데이트)**:
+   - `max_model_len: 4096` (권장) 또는 `3072` (보수적)
+   - `gpu_memory_utilization: 0.82`
+   - `max_num_seqs: 12` (동시 접속 10명 이상 지원)
+   - `max_tokens: 512` (응답 생성)
+
+**현재 GPU 메모리 상황 분석 (2026-01-26)**:
+- RTX 3090 24GB (24576MiB)
+- GPT-SoVITS: 2002MiB (약 2GB)
+- vLLM 현재 사용: 20156MiB (약 20GB)
+- 총 사용: 22169MiB (약 22GB, 90%)
+- 여유 메모리: 2407MiB (약 2.4GB, 10%)
+
+**동시 접속 10명 이상을 위한 최적 설정 계산**:
+
+**옵션 1: 균형 (권장)**
+- `max_model_len: 4096`
+- `gpu_memory_utilization: 0.82`
+- `max_num_seqs: 12`
+- **예상 메모리 사용**:
+  - 모델 가중치: ~14GB (4-bit 양자화)
+  - KV Cache: ~8GB (gpu_memory_utilization 0.82 기준)
+  - KV Cache per sequence (4096 토큰): ~48MB
+  - 12 sequences: 12 * 48MB = 576MB
+  - 총 vLLM: ~22.6GB
+  - GPT-SoVITS: 2GB
+  - **총 사용: ~24.6GB (약간 초과, 하지만 실제로는 동적 할당으로 여유 있음)**
+- **동시 접속**: 10-12명 안정적 지원
+- **컨텍스트**: 4096 토큰 (요약 기능 포함 시 30턴+ 지원)
+
+**옵션 2: 보수적 (안정성 우선)**
+- `max_model_len: 3072`
+- `gpu_memory_utilization: 0.80`
+- `max_num_seqs: 12`
+- **예상 메모리 사용**:
+  - 모델 가중치: ~14GB
+  - KV Cache: ~8GB
+  - KV Cache per sequence (3072 토큰): ~36MB
+  - 12 sequences: 12 * 36MB = 432MB
+  - 총 vLLM: ~22.4GB
+  - GPT-SoVITS: 2GB
+  - **총 사용: ~24.4GB (안전)**
+- **동시 접속**: 10-12명 안정적 지원
+- **컨텍스트**: 3072 토큰 (요약 기능 포함 시 25턴 지원)
+
+**옵션 3: 공격적 (최대 성능)**
+- `max_model_len: 5120`
+- `gpu_memory_utilization: 0.85`
+- `max_num_seqs: 10`
+- **예상 메모리 사용**:
+  - 모델 가중치: ~14GB
+  - KV Cache: ~8.5GB
+  - KV Cache per sequence (5120 토큰): ~60MB
+  - 10 sequences: 10 * 60MB = 600MB
+  - 총 vLLM: ~23.1GB
+  - GPT-SoVITS: 2GB
+  - **총 사용: ~25.1GB (초과 위험)**
+- **동시 접속**: 10명 (안정적)
+- **컨텍스트**: 5120 토큰 (요약 기능 없이도 30턴+ 지원)
+
+**최종 권장사항 (동시 접속 10명 이상 + 긴 컨텍스트)**:
+- **권장 설정**: 옵션 1 (균형)
+  - `max_model_len: 4096`
+  - `gpu_memory_utilization: 0.82`
+  - `max_num_seqs: 12`
+- **이유**:
+  1. 동시 접속 10-12명 안정적 지원
+  2. 4096 토큰으로 긴 대화 지원 (요약 기능 포함 시 30턴+)
+  3. 현재 GPU 메모리 상황에서 안전한 범위
+  4. GPT-SoVITS와 공존 가능
+- **주의사항**:
+  - 실제 메모리 사용량은 동적으로 변동하므로 모니터링 필요
+  - OOM 발생 시 `max_num_seqs`를 10으로 낮추거나 `gpu_memory_utilization`을 0.80으로 낮춤
+  - 요약 기능 구현이 필수 (Phase 5.2)
+
+**동시 접속 5명으로 줄일 때 컨텍스트 길이 계산 (vLLM 공식 문서 기반, 2026-01-26)**:
+
+**참고**: vLLM 공식 문서에 따르면 `max_num_seqs`와 `max_model_len`은 모두 GPU 메모리 사용량을 줄이는 파라미터입니다. `max_num_seqs`를 줄이면 KV cache 공간이 줄어들어 더 긴 컨텍스트를 지원할 수 있습니다.
+
+**현재 설정 (12명)**:
+- `max_num_seqs: 12`
+- `max_model_len: 4096`
+- KV Cache per sequence (4096 토큰): ~48MB
+- 총 KV Cache: 12 * 48MB = 576MB
+
+**동시 접속 5명으로 줄일 때**:
+
+**옵션 A: 최대 컨텍스트 (권장)**
+- `max_num_seqs: 5`
+- `max_model_len: 8192` (또는 6144)
+- `gpu_memory_utilization: 0.82`
+- **예상 메모리 사용**:
+  - 모델 가중치: ~14GB (4-bit 양자화)
+  - KV Cache: ~8GB (gpu_memory_utilization 0.82 기준)
+  - KV Cache per sequence (8192 토큰): ~96MB
+  - 5 sequences: 5 * 96MB = 480MB
+  - 총 vLLM: ~22.5GB
+  - GPT-SoVITS: 2GB
+  - **총 사용: ~24.5GB (안전)**
+- **동시 접속**: 5명 안정적 지원
+- **컨텍스트**: 8192 토큰 (요약 기능 포함 시 50턴+ 지원 가능)
+
+**옵션 B: 균형 (안정성 우선)**
+- `max_num_seqs: 5`
+- `max_model_len: 6144`
+- `gpu_memory_utilization: 0.80`
+- **예상 메모리 사용**:
+  - 모델 가중치: ~14GB
+  - KV Cache: ~8GB
+  - KV Cache per sequence (6144 토큰): ~72MB
+  - 5 sequences: 5 * 72MB = 360MB
+  - 총 vLLM: ~22.4GB
+  - GPT-SoVITS: 2GB
+  - **총 사용: ~24.4GB (안전)**
+- **동시 접속**: 5명 안정적 지원
+- **컨텍스트**: 6144 토큰 (요약 기능 포함 시 40턴+ 지원)
+
+**옵션 C: 보수적**
+- `max_num_seqs: 5`
+- `max_model_len: 5120`
+- `gpu_memory_utilization: 0.80`
+- **예상 메모리 사용**:
+  - 모델 가중치: ~14GB
+  - KV Cache: ~8GB
+  - KV Cache per sequence (5120 토큰): ~60MB
+  - 5 sequences: 5 * 60MB = 300MB
+  - 총 vLLM: ~22.3GB
+  - GPT-SoVITS: 2GB
+  - **총 사용: ~24.3GB (매우 안전)**
+- **동시 접속**: 5명 안정적 지원
+- **컨텍스트**: 5120 토큰 (요약 기능 포함 시 35턴+ 지원)
+
+**메모리 절약 계산**:
+- 12명: 12 * 48MB = 576MB
+- 5명: 5 * 48MB = 240MB
+- **절약: 336MB**
+
+이 절약된 336MB를 더 긴 컨텍스트에 할당:
+- 5명 기준으로 336MB 추가 = 240MB + 336MB = 576MB
+- 576MB / 5 sequences = 115.2MB per sequence
+- 115.2MB / 48MB * 4096 = 약 9830 토큰
+
+**최종 권장사항 (동시 접속 5명)**:
+- **권장 설정**: 옵션 A (최대 컨텍스트)
+  - `max_model_len: 8192`
+  - `gpu_memory_utilization: 0.82`
+  - `max_num_seqs: 5`
+- **이유**:
+  1. 동시 접속 5명 안정적 지원
+  2. 8192 토큰으로 매우 긴 대화 지원 (요약 기능 포함 시 50턴+)
+  3. 메모리 여유 확보 (24.5GB / 24GB, 동적 할당으로 안전)
+  4. GPT-SoVITS와 공존 가능
+- **참고**: vLLM 공식 문서에 따르면 `max_num_seqs`를 줄이면 KV cache 공간이 줄어들어 더 긴 컨텍스트를 지원할 수 있습니다.
+
+**참고 자료**:
+- [vLLM 공식 문서 - Conserving Memory](https://docs.vllm.ai/en/stable/configuration/conserving_memory.html)
+- [vLLM 공식 문서 - Optimization and Tuning](https://docs.vllm.ai/en/stable/configuration/optimization.html)
+
+**구현 우선순위**:
+1. ✅ 기본 채팅 기능 (요약 없이 15-20턴 지원)
+2. ⏳ 요약 기능 구현 (30턴 지원을 위해 필수)
+3. ⏳ 요약 캐싱 (성능 최적화)
+
 **완료 기준**:
-- [ ] vLLM 서비스 (Gemma 3 27B IT) 설정 및 API 서버 구축
-- [ ] Dolphin 2.9 8B 모델 추가 (무검열 프로필)
-- [ ] TTS 서비스 (GPT-SoVITS) 설정 및 API 서버 구축
-- [ ] Main Backend에 채팅 API 추가 (모델 선택 지원)
-- [ ] 프론트엔드 채팅 UI 구현
-- [ ] 음성 재생 기능 구현
-- [ ] VRAM 관리 로직 구현 (3D 생성 시 LLM/TTS 중지)
+- [x] vLLM 설치 완료 (Gemma 3 27B IT 모델 다운로드 완료)
+- [x] GPT-SoVITS Conda 환경 설치 완료
+- [ ] vLLM 서버 실행 및 Docker 컨테이너 설정
+- [ ] GPT-SoVITS WebAPI(api_v2.py) 구동 및 systemd 서비스 등록
+- [ ] Server A NPM 설정 (vLLM, GPT-SoVITS 프록시)
+- [ ] Server B Backend에서 Server A 연결 수정 (Mock 제거, 실제 API 호출)
+- [ ] 프론트엔드와 백엔드 API 경로 통일 (`/api/v1` vs `/api`)
+- [ ] **컨텍스트 절약 요약 기능 구현** (필수, Phase 5.2)
+- [ ] **동시 접속 제한 구현** (필수, Phase 5.3)
+- [ ] **Frontend 턴 제한 제거** (필수, Phase 5.4)
+- [ ] 엔드투엔드 채팅 테스트
+- [ ] TTS 음성 출력 테스트
+
+**다음 단계 (현재 상태 기준, 2026-01-26)**:
+
+**⚠️ 중요**: vLLM과 GPT-SoVITS 설치가 완료되었으므로, 이제 서비스 구동 및 연결 설정이 필요합니다.
+
+**1단계: Server A - vLLM 서버 실행**
+
+**방법 1: 로컬 모델 파일 사용 (이미 다운로드된 경우, 권장)**
+
+```bash
+# Server A에서 vLLM Docker 컨테이너 실행
+# 로컬에 이미 모델이 다운로드되어 있는 경우
+# ⚠️ vLLM 0.13+ 호환: --model 옵션 대신 positional argument 사용
+docker run --runtime nvidia --gpus all \
+    -v /mnt/shared_models/llm:/models/llm:ro \
+    -p 8002:8000 \
+    --ipc=host \
+    vllm/vllm-openai:latest \
+    /models/llm/gemma-3-27b-it \
+    --tensor-parallel-size 1 \
+    --dtype auto \
+    --quantization bitsandbytes \
+    --max-model-len 8192
+```
+
+**방법 2: Hugging Face에서 자동 다운로드 (공식 문서 형식)**
+
+```bash
+# Hugging Face 모델 ID를 사용하면 자동으로 다운로드
+# 공식 문서: https://docs.vllm.ai/en/stable/deployment/docker/
+# ⚠️ vLLM 0.13+ 호환: --model 옵션 대신 positional argument 사용
+docker run --runtime nvidia --gpus all \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    --env "HF_TOKEN=$HF_TOKEN" \
+    -p 8002:8000 \
+    --ipc=host \
+    vllm/vllm-openai:latest \
+    unsloth/gemma-3-27b-it-bnb-4bit \
+    --tensor-parallel-size 1 \
+    --dtype auto \
+    --quantization bitsandbytes \
+    --max-model-len 8192
+```
+
+**⚠️ 참고**:
+- **방법 1 (로컬 파일)**: 이미 다운로드된 모델 사용, 빠른 시작, 네트워크 불필요
+- **방법 2 (HF 자동 다운로드)**: 처음 실행 시 자동 다운로드, Hugging Face 토큰 필요 (일부 모델)
+- 두 방법 모두 동일하게 작동하며, 방법 1이 더 빠릅니다
+
+**기존 모델 삭제 (방법 2로 전환하기 전)**:
+
+```bash
+# 방법 1: 스크립트 사용 (권장, 안전)
+bash scripts/server-a/remove-llm-model.sh
+
+# 스크립트 옵션:
+# 1. gemma-3-27b-it 삭제
+# 2. dolphin-2.9-8b 삭제
+# 3. 모든 LLM 모델 삭제
+# 4. 취소
+
+# 방법 2: 수동 삭제
+# ⚠️ 주의: vLLM 컨테이너가 실행 중이면 먼저 중지
+docker stop vllm-server 2>/dev/null || true
+docker rm vllm-server 2>/dev/null || true
+
+# 특정 모델 삭제
+sudo rm -rf /mnt/shared_models/llm/gemma-3-27b-it
+
+# 또는 모든 LLM 모델 삭제
+sudo rm -rf /mnt/shared_models/llm/*
+```
+
+**2단계: Server A - GPT-SoVITS WebAPI 구동**
+
+GPT-SoVITS WebAPI(`api_v2.py`)를 구동합니다. 이는 GPT-SoVITS의 TTS API 서버입니다.
+
+```bash
+# Server A에서 GPT-SoVITS Conda 환경 활성화
+conda activate GPTSoVits
+cd /opt/GPT-SoVITS
+
+# WebAPI 서버 실행 (포트 9880, 기본값)
+# -a: 바인딩 IP 주소 (0.0.0.0 = 모든 인터페이스)
+# -p: 바인딩 포트 (기본값: 9880)
+# -c: TTS 설정 파일 경로
+python api_v2.py -a 0.0.0.0 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml
+
+# 또는 systemd 서비스로 등록 (자동 시작)
+# (manage-gpt-sovits.sh 스크립트 사용 권장)
+bash scripts/server-a/manage-gpt-sovits.sh
+# 옵션 4 선택 (서비스 관리) → 시작
+```
+
+**⚠️ 참고**: GPT-SoVITS는 여러 포트를 사용합니다:
+- **포트 9872**: TTS API (webui.py에서 제공, 현재 실행 중일 수 있음)
+- **포트 9880**: WebAPI(api_v2.py) 서버 (이 단계에서 구동, 권장)
+- **포트 9873**: 반주 분리 (UVR5) 서비스
+- **포트 9874**: WebUI (관리 인터페이스)
+
+**GPT-SoVITS WebAPI 사용법** (참고: `docs/GPT-SoVITS WebAPI(api_v2.py).md`):
+
+**POST `/tts`** (텍스트-음성 변환):
+```json
+{
+  "text": "안녕하세요, 반갑습니다.",
+  "text_lang": "ko",
+  "ref_audio_path": "path/to/ref.wav",  // 서버 내부 경로
+  "prompt_lang": "ko",
+  "speed_factor": 1.0,
+  "media_type": "wav"
+}
+```
+
+**응답**: 오디오 바이너리 스트림 (wav, ogg, aac 등)
+
+**3단계: Server A - NPM 설정**
+
+Server A의 Nginx Proxy Manager를 설정하여 vLLM과 GPT-SoVITS에 접근할 수 있도록 합니다.
+
+```bash
+# Server A에서 NPM Docker 컨테이너 실행
+cd /path/to/server-a
+docker-compose up -d npm
+
+# NPM 웹 콘솔 접속: http://<Server-A-IP>:81
+# 초기 로그인: admin@example.com / changeme
+```
+
+**NPM Proxy Host 설정**:
+
+1. **LLM 서비스 프록시**:
+   - Domain Names: `llm.server-a.local` (또는 실제 도메인/IP, 예: `gpugpt.duckdns.org`)
+   - Scheme: `http`
+   - Forward Hostname/IP: `172.17.0.1` (Docker bridge 네트워크 게이트웨이 IP, 권장) 또는 `localhost`
+   - Forward Port: `8000` (⚠️ 중요: 컨테이너 내부 포트, 호스트 포트 8002가 아님)
+   - SSL: Let's Encrypt 활성화 (또는 자체 서명 인증서)
+   - **참고**: `172.17.0.1`은 Docker bridge 네트워크의 게이트웨이 IP로, 프록시 서버에서 vLLM 컨테이너에 접근할 수 있습니다.
+
+2. **TTS 서비스 프록시 (GPT-SoVITS WebAPI)**:
+   - Domain Names: `tts.server-a.local` (또는 실제 도메인/IP)
+   - Scheme: `http` (⚠️ 중요: Conda 서비스는 HTTP)
+   - Forward Hostname/IP: `172.17.0.1` (Docker bridge 게이트웨이 IP) 또는 `localhost`
+   - Forward Port: `9880` (⚠️ 중요: WebAPI 포트, webui.py의 9872가 아님!)
+   - SSL: Let's Encrypt 활성화
+
+**4단계: Server B - Backend 연결 수정**
+
+Server B의 Backend에서 Server A와의 연결을 Mock에서 실제 API 호출로 변경합니다.
+
+**파일**: `server-b/backend/app/api/chat.py`
+
+```python
+# 기존 코드 (Mock 응답 제거)
+# Server A의 NPM URL 설정
+SERVER_A_NPM_URL = os.getenv("SERVER_A_NPM_URL", "https://<Server-A-IP>")  # 실제 Server A IP 또는 도메인
+
+@router.post("/chat")
+async def chat(request: ChatRequest):
+    """캐릭터와 대화"""
+    try:
+        # Server A의 LLM 서비스 호출 (NPM을 통한 HTTPS)
+        async with httpx.AsyncClient(verify=False) as client:  # SSL 검증 생략 (자체 서명 인증서 사용 시)
+            response = await client.post(
+                f"{SERVER_A_NPM_URL}/llm/chat",  # NPM 프록시를 통한 접근
+                json=request.dict(),
+                timeout=60.0
+            )
+            result = response.json()
+        
+        return {
+            "success": True,
+            "data": result
+        }
+    except Exception as e:
+        # Mock 응답 제거, 실제 에러 반환
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+**환경 변수 설정** (`.env` 파일):
+```bash
+SERVER_A_NPM_URL=https://<Server-A-IP>  # 또는 실제 도메인
+GPU_SERVER_URL=https://<Server-A-IP>     # 기존 변수도 업데이트
+```
+
+**5단계: API 경로 통일**
+
+Frontend는 `/api/v1`을 사용하지만, Backend는 `/api`를 사용합니다. 경로를 통일해야 합니다.
+
+**옵션 1: Backend에 `/api/v1` 경로 추가 (권장)**
+```python
+# server-b/backend/app/main.py
+from fastapi import APIRouter
+from app.api import auth, chat, generate, tts  # tts 모듈 추가
+
+# 기존 라우터
+app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(chat.router, prefix="/api", tags=["chat"])
+app.include_router(generate.router, prefix="/api", tags=["generate"])
+app.include_router(tts.router, prefix="/api", tags=["tts"])  # TTS 라우터 추가
+
+# v1 경로 추가 (Frontend 호환)
+v1_router = APIRouter()
+v1_router.include_router(auth.router, tags=["auth"])
+v1_router.include_router(chat.router, tags=["chat"])
+v1_router.include_router(generate.router, tags=["generate"])
+v1_router.include_router(tts.router, tags=["tts"])  # TTS 라우터 추가
+app.include_router(v1_router, prefix="/api/v1", tags=["v1"])
+```
+
+**옵션 2: Frontend API 경로를 `/api`로 변경**
+```typescript
+// frontend/lib/api/client.ts
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_VERSION = '/api'  // '/api/v1'에서 '/api'로 변경
+```
+
+**6단계: TTS API 연동**
+
+Server B Backend에 TTS API를 추가합니다.
+
+**파일**: `server-b/backend/app/api/tts.py` (새로 생성)
+
+```python
+from fastapi import APIRouter, HTTPException, Response
+from pydantic import BaseModel
+from typing import Optional
+import httpx
+import os
+
+router = APIRouter()
+
+SERVER_A_NPM_URL = os.getenv("SERVER_A_NPM_URL", "https://<Server-A-IP>")
+
+class TTSRequest(BaseModel):
+    text: str
+    text_lang: str = "ko"
+    ref_audio_path: str  # 참조 오디오 경로 (Server A 내부 경로)
+    prompt_lang: str = "ko"
+    prompt_text: Optional[str] = ""  # 참조 오디오의 텍스트 (선택)
+    speed_factor: float = 1.0
+    media_type: str = "wav"  # "wav", "ogg", "aac", "raw"
+    temperature: float = 1.0
+    top_k: int = 5
+    top_p: float = 1.0
+
+@router.post("/tts")
+async def synthesize(request: TTSRequest):
+    """텍스트를 음성으로 변환"""
+    try:
+        # Server A의 GPT-SoVITS WebAPI 호출
+        async with httpx.AsyncClient(verify=False) as client:
+            response = await client.post(
+                f"{SERVER_A_NPM_URL}/tts/tts",  # NPM 프록시를 통한 접근
+                json=request.dict(),
+                timeout=30.0
+            )
+            # 오디오 바이너리 반환
+            media_type_map = {
+                "wav": "audio/wav",
+                "ogg": "audio/ogg",
+                "aac": "audio/aac",
+                "raw": "audio/raw"
+            }
+            return Response(
+                content=response.content,
+                media_type=media_type_map.get(request.media_type, "audio/wav"),
+                headers={"Content-Disposition": f"attachment; filename=output.{request.media_type}"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/tts/voices")
+async def list_voices():
+    """사용 가능한 음성 목록 (참조 오디오 목록)"""
+    # TODO: Server A에서 참조 오디오 목록 조회
+    return {
+        "success": True,
+        "data": {
+            "voices": [
+                {
+                    "id": "default",
+                    "name": "기본 음성",
+                    "language": "ko",
+                    "ref_audio_path": "/path/to/default.wav"
+                }
+            ]
+        }
+    }
+```
+
+**⚠️ 중요**: `ref_audio_path`는 Server A 내부 경로여야 합니다. Server B에서 참조 오디오를 업로드하거나, Server A에 미리 준비된 참조 오디오를 사용해야 합니다.
+
+**7단계: 통합 테스트**
+
+```bash
+# 1. vLLM 서버 헬스체크 (Server A)
+curl http://localhost:8002/health
+# 또는 vLLM OpenAI API 호환 엔드포인트 테스트
+curl http://localhost:8002/v1/models
+
+# 2. GPT-SoVITS WebAPI 헬스체크 (Server A)
+# 참조 오디오 파일이 필요합니다 (ref_audio_path)
+curl -X POST http://localhost:9880/tts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "테스트입니다",
+    "text_lang": "ko",
+    "ref_audio_path": "/opt/GPT-SoVITS/ref_audio.wav",  # Server A 내부 경로
+    "prompt_lang": "ko",
+    "media_type": "wav"
+  }' \
+  --output test_output.wav
+
+# 3. Server A NPM을 통한 접근 테스트
+# LLM 서비스
+curl http://<Server-A-IP>/llm/health
+# TTS 서비스
+curl -X POST http://<Server-A-IP>/tts/tts \
+  -H "Content-Type: application/json" \
+  -d '{"text": "테스트", "text_lang": "ko", "ref_audio_path": "/opt/GPT-SoVITS/ref_audio.wav", "prompt_lang": "ko"}'
+
+# 4. Server B Backend를 통한 채팅 테스트
+curl -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "messages": [{"role": "user", "content": "안녕하세요!"}],
+    "model": "gemma-3-27b-it"
+  }'
+
+# 5. Server B Backend를 통한 TTS 테스트
+curl -X POST http://localhost:8000/api/tts \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{
+    "text": "안녕하세요, 반갑습니다!",
+    "text_lang": "ko",
+    "ref_audio_path": "/opt/GPT-SoVITS/ref_audio.wav",
+    "prompt_lang": "ko",
+    "media_type": "wav"
+  }' \
+  --output tts_output.wav
+
+# 6. Frontend에서 채팅 테스트
+# 브라우저에서 http://localhost:3000 접속 후 채팅 기능 테스트
+```
 
 **구현 세부사항**:
 
@@ -859,6 +1569,24 @@ export function retargetAnimation(
 - `unhealthy`: 서비스 오프라인 또는 오류
 - `unknown`: 상태 확인 불가
 
+### 5.3.1 API 문서 엔드포인트
+
+Server B Backend (FastAPI)는 다음 API 문서 엔드포인트를 제공합니다:
+
+- **`GET /docs`** - Swagger UI 문서 (대화형 API 문서)
+  - 접근: `http://localhost:8000/docs` 또는 `https://your-domain.com/docs`
+  - 기능: API 엔드포인트 테스트, 요청/응답 스키마 확인, 인증 테스트
+
+- **`GET /redoc`** - ReDoc 문서 (대체 API 문서 형식)
+  - 접근: `http://localhost:8000/redoc` 또는 `https://your-domain.com/redoc`
+  - 기능: API 엔드포인트 문서화, 요청/응답 예시 확인
+
+- **`GET /api/openapi.json`** - OpenAPI 스키마 (JSON 형식)
+  - 접근: `http://localhost:8000/api/openapi.json` 또는 `https://your-domain.com/api/openapi.json`
+  - 기능: OpenAPI 3.0 스키마 다운로드, API 클라이언트 코드 생성에 사용
+
+**참고**: vLLM (Server A)은 FastAPI 기반이 아니므로 `/docs`, `/redoc`, `/openapi.json` 같은 엔드포인트를 제공하지 않습니다. 대신 OpenAI API 표준을 따르며, OpenAI API 공식 문서를 참고하세요.
+
 ### 5.4 채팅 API (vLLM, 2가지 모델 선택 가능)
 
 `POST /api/chat`
@@ -1335,9 +2063,6 @@ services:
       - ./data/letsencrypt:/etc/letsencrypt
     networks:
       - avatar-forge-network
-    # 호스트 서비스(Conda) 연결을 위한 설정 (중요!)
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
 networks:
   avatar-forge-network:
@@ -1389,7 +2114,7 @@ bash scripts/server-a/setup-services.sh
       - **포트 9874**: GPT-SoVITS WebUI (관리 인터페이스) ← **사용**
     - 실행: systemd 서비스 또는 수동 실행 (`conda activate GPTSoVits && python webui.py ko-KR`)
     - 용량: ~5-9GB (Docker 이미지 대비 절약)
-    - **NPM 연결**: `host.docker.internal:9872` 또는 `172.17.0.1:9872` (HTTP, TTS API 포트)
+    - **NPM 연결**: `172.17.0.1:9872` (HTTP, TTS API 포트, Docker bridge 게이트웨이 IP)
     - **⚠️ 중요**: NPM 프록시는 반드시 포트 9872를 사용해야 합니다 (9874는 WebUI용)
     - **⚠️ 매우 중요: Python, PyTorch, torchcodec 버전 호환성**
       - GPT-SoVITS 사용 시 이 세 가지 버전이 반드시 호환되어야 합니다
@@ -1784,11 +2509,16 @@ avatar-forge/
 │   │   │   │   ├── style.py    # /api/style
 │   │   │   │   └── system.py   # /api/system, /api/health
 │   │   │   ├── services/
-│   │   │   │   ├── llm_client.py    # vLLM 연동
-│   │   │   │   ├── tts_client.py    # GPT-SoVITS 연동
-│   │   │   │   ├── gen3d_client.py  # CharacterGen 연동
-│   │   │   │   ├── style_client.py  # Stable Diffusion 연동
-│   │   │   │   └── vram_manager.py   # VRAM 모드 스위칭
+│   │   │   │   ├── llm_client.py      # vLLM 연동
+│   │   │   │   ├── tts_client.py      # GPT-SoVITS 연동
+│   │   │   │   ├── gen3d_client.py    # CharacterGen 연동
+│   │   │   │   ├── style_client.py    # Stable Diffusion 연동
+│   │   │   │   ├── vram_manager.py    # VRAM 모드 스위칭
+│   │   │   │   └── context_manager.py # 컨텍스트 절약 요약 기능 (Phase 5.2, 필수)
+│   │   │   └── core/
+│   │   │       ├── config.py          # 설정/환경변수
+│   │   │       ├── security.py         # 인증/인가 (JWT 등, 추후)
+│   │   │       └── rate_limiter.py    # 동시 접속 제한 (Phase 5.3, 필수)
 │   │   │   ├── models/
 │   │   │   │   └── database.py      # PostgreSQL ORM 모델
 │   │   │   └── core/
@@ -1875,41 +2605,59 @@ avatar-forge/
 
 ### Phase 5 체크리스트
 
-- [ ] Server A NPM 설정
-  - [ ] Nginx Proxy Manager Docker 컨테이너 설정 (포트 80/443/81)
-  - [ ] LLM 서비스 프록시 호스트 설정
-  - [ ] TTS 서비스 프록시 호스트 설정
+**현재 진행 상황 (2026-01-26)**:
+- [x] vLLM 설치 완료 (Gemma 3 27B IT 모델 다운로드 완료)
+- [x] GPT-SoVITS Conda 환경 설치 완료
+- [x] Backend 구현 완료 (Server B, FastAPI)
+- [x] Frontend 구현 완료 (Next.js, API 클라이언트 준비됨)
+
+**다음 작업**:
+- [ ] Server A - vLLM 서버 실행
+  - [ ] vLLM Docker 컨테이너 실행 (포트 8002)
+  - [ ] vLLM 서버 헬스체크 확인
+- [ ] Server A - GPT-SoVITS WebAPI 구동
+  - [ ] GPT-SoVITS WebAPI(api_v2.py) 실행 (포트 9880)
+  - [ ] systemd 서비스 등록 (선택사항, 자동 시작)
+  - [ ] WebAPI 헬스체크 확인
+- [ ] Server A - NPM 설정
+  - [ ] Nginx Proxy Manager Docker 컨테이너 실행 (포트 80/443/81)
+  - [ ] LLM 서비스 프록시 호스트 설정 (포트 8002)
+  - [ ] TTS 서비스 프록시 호스트 설정 (포트 9880)
   - [ ] SSL 인증서 설정 (Let's Encrypt 또는 자체 서명)
-- [ ] LLM 채팅 시스템 구축
-  - [ ] vLLM Docker 이미지 선택/설정 (`vllm/vllm-openai` 또는 커스텀)
-  - [ ] Gemma 3 27B IT 모델 다운로드 및 설정 (Server A의 `/mnt/shared_models/llm/gemma-3-27b-it/`에 직접 저장)
-  - [ ] Dolphin 2.9 8B 모델 다운로드 및 설정 (Server A의 `/mnt/shared_models/llm/dolphin-2.9-8b/`에 직접 저장)
-  - [ ] FastAPI 래퍼 서비스 구현 (`server-a/llm-service`, Docker 이미지 빌드)
-  - [ ] docker-compose(or Kubernetes) 서비스 정의 (내부 Port 8002)
   - [ ] NPM을 통한 외부 접근 테스트
-- [ ] TTS 음성 합성 시스템 구축
-  - [ ] GPT-SoVITS Conda 환경 설치 (`kevinwang676/GPT-SoVITS-v4`, 용량 절약)
-  - [ ] GPT-SoVITS systemd 서비스 등록 및 자동 시작 설정
-  - [ ] GPT-SoVITS 서비스 설정 및 API 연동 (WebUI 포함)
-  - [ ] FastAPI 래퍼 서비스 구현 (내부 Port 8003)
-  - [ ] docker-compose(or Kubernetes) 서비스 정의
-  - [ ] NPM을 통한 외부 접근 테스트
-- [ ] Phase 5 백엔드 API 서버
-  - [ ] Server B NPM 설정 (포트 80/443/81)
-  - [ ] FastAPI 메인 백엔드 구축
-  - [ ] LLM 서비스 연동 API (모델 선택 지원, Server A NPM을 통한 HTTPS 통신)
-  - [ ] TTS 서비스 연동 API (Server A NPM을 통한 HTTPS 통신)
-  - [ ] 기본 인증 시스템
-- [ ] Phase 5 프론트엔드 (채팅 UI)
-  - [ ] Vite + React 프로젝트 초기화
-  - [ ] 채팅 인터페이스 UI 구현
-  - [ ] TTS 오디오 재생 컴포넌트
-  - [ ] LLM 모델 선택 UI (Gemma 3 27B IT / Dolphin 2.9 8B)
-  - [ ] 백엔드 API 연동
+- [ ] Server B - Backend 연결 수정
+  - [ ] Server A NPM URL 환경 변수 설정
+  - [ ] Mock 응답 제거, 실제 API 호출로 변경
+  - [ ] LLM 서비스 연동 테스트
+  - [ ] TTS 서비스 API 추가 및 연동
+- [ ] **Phase 5.2: 컨텍스트 절약 요약 기능 구현 (필수, 미구현)**
+  - [ ] Redis 설치 및 설정
+  - [ ] `ContextManager` 서비스 구현 (`app/services/context_manager.py`)
+  - [ ] 세션 기반 히스토리 관리 구현
+  - [ ] 자동 요약 로직 구현 (컨텍스트 80% 사용 시)
+  - [ ] 요약 캐싱 구현
+  - [ ] Backend API에 통합 (`chat.py`)
+- [ ] **Phase 5.3: 동시 접속 제한 구현 (필수, 미구현)**
+  - [ ] Redis 설정 (세션 카운터용)
+  - [ ] `ConcurrentUserLimiter` 구현 (`app/core/rate_limiter.py`)
+  - [ ] Middleware 또는 Dependency로 통합
+  - [ ] 환경 변수 설정 (`MAX_CONCURRENT_USERS=12`, 동시 접속 10-12명 지원)
+  - [ ] 503 에러 처리 테스트
+- [ ] **Phase 5.4: Frontend 턴 제한 제거 (미구현)**
+  - [ ] `chat-room.tsx`에서 30턴 제한 제거
+  - [ ] 세션 관리 로직 추가 (세션 ID 생성/유지)
+  - [ ] 무제한 대화 UI 개선
+  - [ ] API 호출 시 `session_id` 포함
+- [ ] API 경로 통일
+  - [ ] Backend에 `/api/v1` 경로 추가 또는 Frontend 경로 수정
+  - [ ] API 경로 통일 확인
 - [ ] Phase 5 통합 테스트
-  - [ ] 엔드투엔드 채팅 테스트
-  - [ ] TTS 음성 출력 테스트
-  - [ ] 부하 테스트
+  - [ ] 엔드투엔드 채팅 테스트 (Frontend → Backend → Server A vLLM)
+  - [ ] 긴 대화 테스트 (30턴 이상, 요약 기능 검증)
+  - [ ] 동시 접속 제한 테스트 (20명 초과 시 503 에러)
+  - [ ] TTS 음성 출력 테스트 (Frontend → Backend → Server A GPT-SoVITS)
+  - [ ] 에러 핸들링 테스트
+  - [ ] 부하 테스트 (선택사항)
 
 ### Phase 6 체크리스트
 
@@ -1945,6 +2693,10 @@ avatar-forge/
 
 | 버전  | 날짜       | 변경 내용 |
 |------:|------------|----------|
+| 1.11.0 | 2026-01-26 | 리버스 프록시 설정 정보 업데이트: vLLM 프록시 설정을 `172.17.0.1:8000` (Docker bridge 게이트웨이 IP, 컨테이너 내부 포트)로 통일. API 문서 엔드포인트 정보 추가 (`/docs`, `/redoc`, `/api/openapi.json`). 문서 간 정합성 개선. |
+| 1.10.0 | 2026-01-26 | 동시 접속 5명일 때 컨텍스트 길이 계산 추가: vLLM 공식 문서 기반으로 max_num_seqs=5일 때 max_model_len=8192 지원 가능 분석 추가. KV Cache 메모리 계산 및 옵션별 비교 (8192/6144/5120 토큰). |
+| 1.9.0 | 2026-01-26 | Phase 5 핵심 기능 추가: 컨텍스트 절약 요약 기능 구현 계획 (Phase 5.2, 필수), 동시 접속 제한 구현 계획 (Phase 5.3, 최대 20명, 필수), Frontend 턴 제한 제거 (Phase 5.4, 무제한 대화 지원). 각 문서에 상세 구현 가이드 추가 (FINALFINAL.md, PHASE5_SETUP.md, Backend_프로젝트_현황_명세서.md, Front_PROJECT_SPECIFICATION.md). 컨텍스트 길이 최적화 분석 추가 (4096 권장, 요약 기능 필수). |
+| 1.8.0 | 2026-01-26 | Phase 5 진행 상황 업데이트: vLLM 및 GPT-SoVITS 설치 완료 상태 반영. 다음 단계 가이드 추가 (vLLM 서버 실행, GPT-SoVITS WebAPI 구동, NPM 설정, Backend 연결 수정, API 경로 통일, TTS API 연동, 통합 테스트). Backend 및 Frontend 구현 완료 상태 명시. |
 | 1.7.0 | 2026-01-24 | 기본 LLM 모델을 GPT-OSS-20B에서 Gemma 3 27B IT로 변경. 멀티모달 지원, 128K 컨텍스트 윈도우, 용량 정보 업데이트 (~50-55GB, 양자화 시 ~13-15GB). |
 | 1.6.0 | 2026-01-24 | 모델 용량 분석 추가 및 최적 배치 전략 제안. Server A에 100GB 여유 공간이 있을 경우 모든 모델을 Server A에 직접 저장하는 것을 권장 (총 모델 용량 ~50-60GB). HTTP API 다운로드 방식은 Server A 스토리지 부족 시 대안으로 제시. |
 | 1.5.0 | 2026-01-23 | Server A와 Server B 모두 Nginx Proxy Manager를 Docker로 사용하도록 변경. 모든 서비스는 내부 포트로만 실행하고, 외부 접근은 NPM을 통해 포트 80/443으로만 이루어짐. Server B의 Main Backend는 Server A의 NPM을 통해 AI 서비스에 접근. |

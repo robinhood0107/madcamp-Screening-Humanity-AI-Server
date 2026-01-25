@@ -1,0 +1,27 @@
+# Git 줄바꿈 자동 변환 설정
+# 모든 텍스트 파일은 LF로 저장
+* text=auto
+
+# Shell 스크립트는 항상 LF 사용
+*.sh text eol=lf
+
+# Python 파일은 LF 사용
+*.py text eol=lf
+
+# Markdown 파일은 LF 사용
+*.md text eol=lf
+
+# YAML 파일은 LF 사용
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# JSON 파일은 LF 사용
+*.json text eol=lf
+
+# 설정 파일은 LF 사용
+*.conf text eol=lf
+*.config text eol=lf
+
+# Dockerfile은 LF 사용
+Dockerfile text eol=lf
+*.dockerfile text eol=lf

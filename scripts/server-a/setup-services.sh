@@ -46,8 +46,6 @@ services:
       - ./data/letsencrypt:/etc/letsencrypt
     networks:
       - avatar-forge-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
 networks:
   avatar-forge-network:
@@ -80,7 +78,8 @@ EOF
         echo "📋 다음 단계:"
         echo "   1. NPM 웹 콘솔: http://<Server-A-IP>:81"
         echo "   2. Proxy Host 설정:"
-        echo "      - Forward: http://host.docker.internal:9872 (⚠️ 중요: TTS API 포트)"
+        echo "      - Forward Hostname/IP: 172.17.0.1 (Docker bridge 게이트웨이 IP)"
+        echo "      - Forward Port: 9872 (⚠️ 중요: TTS API 포트)"
         echo "      - Scheme: http (중요!)"
         echo ""
         ;;

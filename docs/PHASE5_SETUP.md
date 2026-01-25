@@ -8,6 +8,37 @@
 5. [통합 테스트](#5-통합-테스트)
 6. [문제 해결](#6-문제-해결)
 
+---
+
+## ⚠️ 미구현 기능 목록 (2026-01-26)
+
+### Phase 5.1: 기본 채팅 기능 (현재 진행 중)
+- ✅ vLLM 서버 설정 및 실행
+- ✅ GPT-SoVITS WebAPI 구동
+- ⚠️ Backend API 연동 (진행 중)
+- ⚠️ Frontend 연동 (진행 중)
+
+### Phase 5.2: 컨텍스트 절약 요약 기능 (필수, 미구현)
+- **구현 시기**: Phase 5.1 완료 후 즉시
+- **우선순위**: 높음 (필수)
+- **구현 위치**: `server-b/backend/app/services/context_manager.py` (신규 생성)
+- **상세 내용**: [Phase 5.2-5.4 구현 가이드 - Phase 5.2](#51-phase-52-컨텍스트-절약-요약-기능-구현) 섹션 참조
+
+### Phase 5.3: 동시 접속 제한 (필수, 미구현)
+- **구현 시기**: Phase 5.1 완료 후 즉시
+- **우선순위**: 높음 (필수)
+- **구현 위치**: `server-b/backend/app/core/rate_limiter.py` (신규 생성)
+- **상세 내용**: [Phase 5.2-5.4 구현 가이드 - Phase 5.3](#52-phase-53-동시-접속-제한-구현) 섹션 참조
+
+### Phase 5.4: Frontend 턴 제한 제거 (미구현)
+- **구현 시기**: Phase 5.1 완료 후
+- **구현 위치**: `components/chat-room.tsx`
+- **상세 내용**: [Phase 5.2-5.4 구현 가이드 - Phase 5.4](#53-phase-54-frontend-턴-제한-제거) 섹션 참조
+
+### 기타 미구현 기능
+- **TTS 음성 목록 조회 API** (`GET /api/tts/voices`)
+  - 구현 시기: Phase 5.1 이후 (우선순위: 중간)
+
 **참고 자료**:
 - GPT-SoVITS 포트 구분 및 적용법: [Notion 문서](https://www.notion.so/1d6d3e41a6c0809b8f6afb53f7b985c3?v=1d6d3e41a6c081928e59000c47330846&source=copy_link), [Arca.live 게시판들](https://arca.live/b/characterai/114903135?)
 
@@ -18,6 +49,34 @@
 ### 1.1 Phase 5 목표
 - LLM(vLLM)과 TTS(GPT-SoVITS)를 연동하여 캐릭터와 텍스트/음성으로 대화할 수 있는 기능 구현
 - LLM 모델: Gemma 3 27B IT (기본)
+- **무제한 대화 지원**: 턴 제한 제거, 컨텍스트 절약 요약 기능으로 긴 대화 지원
+- **동시 접속 제한**: 최대 20명 동시 접속 (추후 증가 예정)
+
+### 1.2 Phase 5 세부 단계 (2026-01-26)
+
+**Phase 5.1: 기본 채팅 기능 (현재 진행 중)**
+- vLLM 서버 설정 및 실행
+- GPT-SoVITS WebAPI 구동
+- Backend API 연동
+- Frontend 연동
+
+**Phase 5.2: 컨텍스트 절약 요약 기능 (Phase 5.1 완료 후 즉시, 필수, 미구현)**
+- Redis 또는 메모리 캐시 설정
+- `ContextManager` 서비스 구현
+- 세션 기반 히스토리 관리
+- 자동 요약 로직 구현
+- Backend API에 통합
+
+**Phase 5.3: 동시 접속 제한 (Phase 5.1 완료 후 즉시, 필수, 미구현)**
+- Redis 설정 (세션 카운터용)
+- `ConcurrentUserLimiter` 구현
+- Middleware 또는 Dependency로 통합
+- 환경 변수 설정 (`MAX_CONCURRENT_USERS=20`)
+
+**Phase 5.4: Frontend 턴 제한 제거 (Phase 5.1 완료 후, 미구현)**
+- `chat-room.tsx`에서 30턴 제한 제거
+- 무제한 대화 UI 개선
+- 세션 관리 로직 추가
 
 ### 1.2 모델 용량 요약
 
@@ -462,9 +521,6 @@ services:
       - ./data/letsencrypt:/etc/letsencrypt
     networks:
       - avatar-forge-network
-    # 호스트 서비스(Conda) 연결을 위한 설정 (중요!)
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
 networks:
   avatar-forge-network:
@@ -506,7 +562,7 @@ bash scripts/server-a/monitor-system.sh
 **TTS 서비스 프록시 (호스트 Conda 서비스)**:
 - Domain Names: `tts.server-a.local` (또는 실제 도메인)
 - Scheme: `http` (⚠️ 중요: Conda 서비스는 HTTP이므로 반드시 http)
-- Forward Hostname/IP: `host.docker.internal` (또는 `172.17.0.1`)
+- Forward Hostname/IP: `172.17.0.1` (Docker bridge 게이트웨이 IP)
 - Forward Port: `9872` (⚠️ 중요: TTS API 포트, WebUI가 아닌 TTS 서비스 포트)
 - SSL: Let's Encrypt 활성화
 
@@ -531,9 +587,7 @@ GPT-SoVITS는 **3개의 포트를 모두 사용**합니다:
 
 **⚠️ 중요 설정 사항**:
 1. **Scheme은 반드시 `http`**: Conda 서비스는 기본적으로 HTTP로 실행됨
-2. **호스트 접근 방법**:
-   - `host.docker.internal` (권장, `extra_hosts` 설정 필요)
-   - 또는 `172.17.0.1` (Docker 호스트 게이트웨이 IP)
+2. **호스트 접근 방법**: `172.17.0.1` (Docker bridge 게이트웨이 IP, 기본 bridge 네트워크 사용)
 3. **포트 확인**: 실제 실행 중인 포트 확인 필요
    ```bash
    sudo journalctl -u gpt-sovits -n 50 | grep -i "running\|port"
@@ -560,18 +614,16 @@ services:
               capabilities: [gpu]
     volumes:
       - /mnt/shared_models/llm:/models/llm:ro
+    # ⚠️ vLLM 0.13+ 호환: --model 옵션 대신 positional argument 사용
     command: >
-      vllm serve /models/llm/gemma-3-27b-it
-      --port 8002
+      /models/llm/gemma-3-27b-it
       --tensor-parallel-size 1
       --dtype auto
       --quantization bitsandbytes
       --max-model-len 8192
-      --host 0.0.0.0
     ports:
-      - "8002:8002"
-    networks:
-      - avatar-forge-network
+      - "8002:8000"
+    ipc: host
     environment:
       - CUDA_VISIBLE_DEVICES=0
 ```
@@ -996,7 +1048,7 @@ sudo journalctl -u gpt-sovits -n 50 | grep -i "running\|port"
 3. **Details 탭**:
    - Domain Names: `tts.server-a.local` (또는 실제 도메인)
    - **Scheme: `http`** (⚠️ 중요: 반드시 http, https 아님)
-   - Forward Hostname/IP: `host.docker.internal` (권장) 또는 `172.17.0.1`
+   - Forward Hostname/IP: `172.17.0.1` (Docker bridge 게이트웨이 IP)
    - **Forward Port: `9872`** (⚠️ 중요: TTS API 포트, WebUI 9874가 아님!)
 4. **SSL 탭**:
    - SSL Certificate: "Request a new SSL Certificate" 선택
@@ -1006,7 +1058,7 @@ sudo journalctl -u gpt-sovits -n 50 | grep -i "running\|port"
 
 **⚠️ 502 Bad Gateway 오류 시 확인 사항**:
 - Scheme이 `http`인지 확인 (가장 흔한 원인)
-- Forward Hostname/IP가 `host.docker.internal` 또는 `172.17.0.1`인지 확인
+- Forward Hostname/IP가 `172.17.0.1`인지 확인
 - 포트가 실제 실행 중인 포트와 일치하는지 확인
 - 연결 테스트: `bash scripts/server-a/monitor-system.sh` (옵션 6)
 
@@ -1039,8 +1091,7 @@ bash scripts/server-a/troubleshoot-gpt-sovits-npm.sh
    ```
 
 3. **NPM이 bridge 네트워크인 경우 (해결됨)**
-   - ✅ `host.docker.internal` 사용 (NPM 컨테이너에 `extra_hosts` 설정 필요)
-   - ✅ 또는 `172.17.0.1` 사용 (Docker 호스트 게이트웨이)
+   - ✅ `172.17.0.1` 사용 (Docker bridge 게이트웨이 IP)
    - ⚠️ `127.0.0.1`은 작동하지 않음 (컨테이너 내부의 localhost를 가리킴)
    - 해결: `bash scripts/server-a/setup-services.sh` (옵션 1)로 NPM 재설정
 
@@ -1056,7 +1107,7 @@ bash scripts/server-a/troubleshoot-gpt-sovits-npm.sh
    curl http://localhost:9874
    
    # NPM 컨테이너에서 TTS API 테스트
-   docker exec npm curl http://host.docker.internal:9872
+   docker exec npm curl http://172.17.0.1:9872
    ```
 
 **통합 스크립트 사용 (권장)**:
@@ -1108,16 +1159,24 @@ GPT-SoVITS를 사용할 때는 **반드시 Python, PyTorch, torchcodec 버전이
 
 ```python
 # server-b/backend/app/api/chat.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 import httpx
 import os
+import uuid
+from app.services.context_manager import ContextManager
+from app.core.rate_limiter import ConcurrentUserLimiter
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
 # Server A의 NPM URL
 SERVER_A_NPM_URL = os.getenv("SERVER_A_NPM_URL", "https://server-a.local")
+
+# 서비스 인스턴스
+context_manager = ContextManager()
+user_limiter = ConcurrentUserLimiter()
 
 class Message(BaseModel):
     role: str
@@ -1129,26 +1188,58 @@ class ChatRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 512
     model: str = "gemma-3-27b-it"
+    session_id: Optional[str] = None  # 세션 ID (자동 생성)
 
 @router.post("/chat")
-async def chat(request: ChatRequest):
-    """캐릭터와 대화"""
+async def chat(
+    request: ChatRequest,
+    current_user = Depends(get_current_user)
+):
+    """캐릭터와 대화 (무제한 대화 지원, 자동 요약)"""
     try:
-        # Server A의 LLM 서비스 호출
-        async with httpx.AsyncClient(verify=False) as client:  # SSL 검증 생략 (자체 서명 인증서 사용 시)
+        # 1. 동시 접속 제한 확인
+        await user_limiter.check_limit(current_user.id)
+        
+        # 2. 세션 ID 생성/조회
+        session_id = request.session_id or str(uuid.uuid4())
+        
+        # 3. 컨텍스트 관리 (자동 요약 포함)
+        optimized_messages = await context_manager.manage_context(
+            session_id=session_id,
+            new_messages=request.messages,
+            persona=request.persona
+        )
+        
+        # 4. Server A의 LLM 서비스 호출
+        async with httpx.AsyncClient(verify=False) as client:
             response = await client.post(
                 f"{SERVER_A_NPM_URL}/llm/chat",
-                json=request.dict(),
+                json={
+                    "messages": [msg.dict() for msg in optimized_messages],
+                    "persona": request.persona,
+                    "temperature": request.temperature,
+                    "max_tokens": request.max_tokens,
+                    "model": request.model
+                },
                 timeout=60.0
             )
             result = response.json()
         
         return {
             "success": True,
-            "data": result
+            "data": {
+                **result,
+                "session_id": session_id,
+                "context_summarized": context_manager.was_summarized(session_id)
+            }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # 세션 해제는 클라이언트가 명시적으로 요청하거나 TTL로 자동 해제
+        pass
 
 @router.get("/chat/models")
 async def list_models():
@@ -1209,7 +1300,254 @@ async def synthesize(request: TTSRequest):
 
 ---
 
-## 5. 통합 테스트
+## 5. Phase 5.2-5.4 구현 가이드 (2026-01-26)
+
+### 5.1 Phase 5.2: 컨텍스트 절약 요약 기능 구현
+
+**구현 위치**: `server-b/backend/app/services/context_manager.py` (신규 생성)
+
+**구현 시기**: Phase 5.1 완료 후 즉시 구현 (우선순위: 높음, 필수 기능)
+
+**필수 의존성**:
+```bash
+# Redis 설치 (세션 저장용)
+# Server B에서 실행
+sudo apt update
+sudo apt install -y redis-server
+sudo systemctl start redis-server
+sudo systemctl enable redis-server
+
+# Python Redis 클라이언트
+pip install redis tiktoken
+```
+
+**구현 단계**:
+
+1. **ContextManager 서비스 생성**:
+```python
+# server-b/backend/app/services/context_manager.py
+from typing import List, Dict, Optional
+import tiktoken
+import redis.asyncio as redis
+import os
+import json
+from app.api.chat import Message
+import httpx
+
+class ContextManager:
+    def __init__(self):
+        self.redis_client = redis.from_url(
+            os.getenv("REDIS_URL", "redis://localhost:6379")
+        )
+        self.max_context_tokens = 4096
+        self.recent_turns_to_keep = 18
+        self.summary_threshold = 0.8
+        self.encoding = tiktoken.get_encoding("cl100k_base")  # GPT-4 토큰 인코더
+        
+    async def manage_context(
+        self,
+        session_id: str,
+        new_messages: List[Message],
+        persona: Optional[str] = None,
+        situation: Optional[str] = None
+    ) -> List[Message]:
+        """대화 히스토리 관리 및 자동 요약"""
+        # 1. 세션 히스토리 조회
+        history = await self.get_session_history(session_id)
+        
+        # 2. 새 메시지 추가
+        history.extend(new_messages)
+        
+        # 3. 토큰 수 계산
+        total_tokens = self.count_tokens(history, persona, situation)
+        
+        # 4. 요약 필요 여부 판단
+        if total_tokens > self.max_context_tokens * self.summary_threshold:
+            history = await self.summarize_old_messages(
+                history,
+                keep_recent=self.recent_turns_to_keep
+            )
+        
+        # 5. 세션 히스토리 저장
+        await self.save_session_history(session_id, history)
+        
+        # 6. 최종 메시지 리스트 반환
+        return self.build_final_messages(history, persona, situation)
+    
+    async def summarize_old_messages(
+        self,
+        messages: List[Message],
+        keep_recent: int = 18
+    ) -> List[Message]:
+        """오래된 메시지를 요약하여 압축"""
+        if len(messages) <= keep_recent:
+            return messages
+        
+        recent_messages = messages[-keep_recent:]
+        old_messages = messages[:-keep_recent]
+        
+        # LLM으로 요약 생성 (vLLM 서버 사용)
+        summary = await self.generate_summary(old_messages)
+        
+        # 요약을 시스템 메시지로 추가
+        summary_message = Message(
+            role="system",
+            content=f"[이전 대화 요약] {summary}"
+        )
+        
+        return [summary_message] + recent_messages
+    
+    async def generate_summary(self, messages: List[Message]) -> str:
+        """LLM을 사용하여 대화 요약 생성"""
+        # vLLM 서버로 요약 요청
+        # 간단한 프롬프트로 요약 생성
+        pass
+```
+
+2. **chat.py에 통합**:
+```python
+# server-b/backend/app/api/chat.py 수정
+from app.services.context_manager import ContextManager
+
+context_manager = ContextManager()
+
+@router.post("/chat")
+async def chat(request: ChatRequest, current_user = Depends(get_current_user)):
+    # ... 기존 코드 ...
+    
+    # 컨텍스트 관리 추가
+    optimized_messages = await context_manager.manage_context(
+        session_id=request.session_id or str(uuid.uuid4()),
+        new_messages=request.messages,
+        persona=request.persona
+    )
+    
+    # ... 나머지 코드 ...
+```
+
+### 5.2 Phase 5.3: 동시 접속 제한 구현
+
+**구현 위치**: `server-b/backend/app/core/rate_limiter.py` (신규 생성)
+
+**구현 시기**: Phase 5.1 완료 후 즉시 구현 (우선순위: 높음, 필수 기능)
+
+**필수 의존성**: Redis (Phase 5.2와 동일)
+
+**구현 단계**:
+
+1. **ConcurrentUserLimiter 생성**:
+```python
+# server-b/backend/app/core/rate_limiter.py
+from fastapi import HTTPException, status
+import redis.asyncio as redis
+import os
+
+class ConcurrentUserLimiter:
+    def __init__(self):
+        self.redis_client = redis.from_url(
+            os.getenv("REDIS_URL", "redis://localhost:6379")
+        )
+        self.max_users = int(os.getenv("MAX_CONCURRENT_USERS", "20"))
+        self.key_prefix = "active_sessions:"
+        self.session_ttl = 3600  # 1시간
+        
+    async def check_limit(self, user_id: str) -> bool:
+        """동시 접속 제한 확인"""
+        active_count = await self.get_active_count()
+        
+        if active_count >= self.max_users:
+            is_existing = await self.is_user_active(user_id)
+            if not is_existing:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"최대 동시 접속자 수({self.max_users}명)에 도달했습니다. 잠시 후 다시 시도해주세요."
+                )
+        
+        await self.register_session(user_id)
+        return True
+    
+    async def get_active_count(self) -> int:
+        """현재 활성 세션 수 조회"""
+        keys = await self.redis_client.keys(f"{self.key_prefix}*")
+        return len(keys)
+    
+    async def register_session(self, user_id: str):
+        """세션 등록"""
+        await self.redis_client.setex(
+            f"{self.key_prefix}{user_id}",
+            self.session_ttl,
+            "active"
+        )
+    
+    async def release_session(self, user_id: str):
+        """세션 해제"""
+        await self.redis_client.delete(f"{self.key_prefix}{user_id}")
+```
+
+2. **chat.py에 통합**:
+```python
+# server-b/backend/app/api/chat.py 수정
+from app.core.rate_limiter import ConcurrentUserLimiter
+
+user_limiter = ConcurrentUserLimiter()
+
+@router.post("/chat")
+async def chat(request: ChatRequest, current_user = Depends(get_current_user)):
+    # 동시 접속 제한 확인
+    await user_limiter.check_limit(current_user.id)
+    
+    # ... 나머지 코드 ...
+```
+
+3. **환경 변수 설정**:
+```bash
+# server-b/backend/.env
+MAX_CONCURRENT_USERS=20
+REDIS_URL=redis://localhost:6379
+```
+
+### 5.3 Phase 5.4: Frontend 턴 제한 제거
+
+**구현 위치**: `frontend/src/components/chat-room.tsx`
+
+**구현 시기**: Phase 5.1 완료 후
+
+**구현 단계**:
+
+1. **턴 제한 제거**:
+```typescript
+// frontend/src/components/chat-room.tsx 수정
+// 기존: const MAX_TURNS = 30;
+// 제거: 턴 제한 관련 코드 모두 제거
+
+// 세션 관리 추가
+const [sessionId, setSessionId] = useState<string | null>(null);
+
+useEffect(() => {
+  // 세션 ID 생성 또는 복원
+  const savedSessionId = localStorage.getItem('chat_session_id');
+  if (savedSessionId) {
+    setSessionId(savedSessionId);
+  } else {
+    const newSessionId = uuidv4();
+    setSessionId(newSessionId);
+    localStorage.setItem('chat_session_id', newSessionId);
+  }
+}, []);
+
+// API 호출 시 session_id 포함
+const response = await chatApi.chat({
+  messages: chatMessages,
+  persona: persona,
+  session_id: sessionId  // 추가
+});
+```
+
+2. **UI 개선**:
+- 턴 수 표시 제거
+- 무제한 대화 안내 메시지 추가 (선택적)
+
+## 6. 통합 테스트
 
 ### 5.1 서비스 헬스체크
 
@@ -1402,13 +1740,7 @@ bash scripts/server-a/monitor-system.sh
 
 **해결 방법**:
 
-1. **NPM 컨테이너 설정** (`docker-compose.yaml`에 `extra_hosts` 추가):
-   ```yaml
-   services:
-     npm:
-       extra_hosts:
-         - "host.docker.internal:host-gateway"
-   ```
+1. **NPM 컨테이너 설정**: bridge 네트워크 사용 (기본값)
 
 2. **호스트 서비스 바인딩 확인**:
    ```bash
@@ -1423,7 +1755,7 @@ bash scripts/server-a/monitor-system.sh
 3. **NPM 웹 콘솔 설정**:
    - Domain Names: `tts.server-a.local`
    - **Scheme: `http`** (⚠️ 중요!)
-   - Forward Hostname/IP: `host.docker.internal` (또는 `172.17.0.1`)
+   - Forward Hostname/IP: `172.17.0.1` (Docker bridge 게이트웨이 IP)
    - **Forward Port: `9872`** (⚠️ 매우 중요: TTS API 포트, WebUI 9874가 아님!)
 
 4. **연결 테스트**:
@@ -1432,14 +1764,13 @@ bash scripts/server-a/monitor-system.sh
    curl http://localhost:9872
    
    # NPM 컨테이너에서 테스트
-   docker exec npm curl http://host.docker.internal:9872
+   docker exec npm curl http://172.17.0.1:9872
    ```
 
 **502 Bad Gateway 오류 해결**:
 - **원인 1**: Scheme이 `https`로 설정됨 → **해결**: `http`로 변경
-- **원인 2**: Forward Hostname/IP가 `127.0.0.1` → **해결**: `host.docker.internal` 또는 `172.17.0.1` 사용
+- **원인 2**: Forward Hostname/IP가 `127.0.0.1` → **해결**: `172.17.0.1` 사용 (Docker bridge 게이트웨이)
 - **원인 3**: Forward Port가 `9874` → **해결**: `9872` 사용 (TTS API 포트)
-- **원인 4**: `extra_hosts` 설정 누락 → **해결**: `bash scripts/server-a/setup-services.sh` 실행 (옵션 1)
 
 ### 6.5 GPT-SoVITS 오류 해결
 

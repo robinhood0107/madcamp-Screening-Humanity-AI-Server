@@ -7,10 +7,15 @@ echo "=========================================="
 echo "NVIDIA Container Toolkit 설치 시작"
 echo "=========================================="
 
+# 0. 기존 잘못된 설정 파일 삭제 (있는 경우)
+if [ -f /etc/apt/sources.list.d/nvidia-container-toolkit.list ]; then
+    echo "기존 설정 파일 삭제 중..."
+    sudo rm -f /etc/apt/sources.list.d/nvidia-container-toolkit.list
+fi
+
 # 1. 패키지 저장소 및 GPG 키 설정
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | \
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
     sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
     sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 

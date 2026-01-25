@@ -68,7 +68,7 @@ case $REPLY in
             conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
             conda config --add channels conda-forge 2>/dev/null || true
             conda config --set channel_priority strict 2>/dev/null || true
-            conda create -n "$CONDA_ENV" python=3.9 -y
+            conda create -n "$CONDA_ENV" python=3.11 -y
         fi
         
         # 저장소 클론
@@ -84,41 +84,40 @@ case $REPLY in
         # ⚠️ 매우 중요: Python, PyTorch, torchcodec 버전 호환성
         echo ""
         echo "=========================================="
-        echo "⚠️  매우 중요: PyTorch 버전 선택"
+        echo "⚠️  매우 중요: PyTorch 버전 설정"
         echo "=========================================="
         echo ""
-        echo "GPT-SoVITS는 Python, PyTorch, torchcodec 버전이 반드시 호환되어야 합니다!"
-        echo "잘못된 버전 조합은 ImportError, 런타임 오류 등을 발생시킬 수 있습니다."
+        echo "설정된 버전:"
+        echo "  - Python: 3.11"
+        echo "  - PyTorch: 2.7.0"
+        echo "  - torchcodec, torchaudio: PyTorch 2.7.0과 호환되는 버전 자동 설치"
         echo ""
-        echo "공식 문서를 반드시 참고하세요:"
-        echo "  - https://github.com/RVC-Boss/GPT-SoVITS"
-        echo "  - https://github.com/RVC-Boss/GPT-SoVITS/blob/main/docs/ko/README.md"
+        echo "GPT-SoVITS는 Python, PyTorch, torchcodec 버전이 반드시 호환되어야 합니다!"
         echo ""
         
         # CUDA 버전 확인
         CUDA_VERSION=$(nvidia-smi | grep "CUDA Version" | awk '{print $9}' | cut -d. -f1,2 || echo "12.8")
         echo "감지된 CUDA 버전: $CUDA_VERSION"
         echo ""
-        echo "PyTorch 버전 선택:"
-        echo "  1. CUDA 12.6/12.7 (--device CU126)"
-        echo "  2. CUDA 12.8/13.0/13.1 (--device CU128, 권장)"
-        echo "  3. CPU (--device CPU, 권장하지 않음)"
+        echo "CUDA 버전 선택:"
+        echo "  1. CUDA 12.6/12.7 (cu126)"
+        echo "  2. CUDA 12.8/13.0/13.1 (cu128, 권장)"
+        echo "  3. CPU (cpu, 권장하지 않음)"
         echo ""
         read -p "선택 (1-3, 기본값: 2): " -n 1 -r
         echo
         CHOICE=${REPLY:-2}
         
         case $CHOICE in
-            1) DEVICE="CU126" ;;
-            2) DEVICE="CU128" ;;
-            3) DEVICE="CPU" ;;
-            *) DEVICE="CU128" ;;
+            1) CUDA_TAG="cu126" ;;
+            2) CUDA_TAG="cu128" ;;
+            3) CUDA_TAG="cpu" ;;
+            *) CUDA_TAG="cu128" ;;
         esac
         
         echo ""
-        echo "선택된 디바이스: $DEVICE"
-        echo "⚠️  이 선택에 따라 PyTorch 버전이 자동으로 결정됩니다"
-        echo "   Python 3.9와 호환되는 PyTorch 버전이 설치됩니다"
+        echo "선택된 CUDA 태그: $CUDA_TAG"
+        echo "PyTorch 2.7.0 + $CUDA_TAG 설치 예정"
         echo ""
         read -p "계속하시겠습니까? (Y/n): " -n 1 -r
         echo
@@ -129,7 +128,29 @@ case $REPLY in
         
         echo ""
         echo "의존성 설치 중 (시간이 걸릴 수 있습니다)..."
-        bash install.sh --device "$DEVICE" --source HF
+        
+        # PyTorch 2.7.0 설치 (CUDA 버전에 맞게)
+        echo "PyTorch 2.7.0 설치 중..."
+        if [ "$CUDA_TAG" = "cpu" ]; then
+            pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        else
+            pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/$CUDA_TAG
+        fi
+        
+        # torchcodec 설치 (PyTorch 2.7.0과 호환되는 버전)
+        echo "torchcodec 설치 중..."
+        pip install torchcodec
+        
+        # 나머지 의존성 설치 (install.sh 대신 requirements.txt 사용)
+        if [ -f "extra-req.txt" ]; then
+            echo "extra-req.txt 설치 중..."
+            pip install -r extra-req.txt --no-deps
+        fi
+        
+        if [ -f "requirements.txt" ]; then
+            echo "requirements.txt 설치 중..."
+            pip install -r requirements.txt
+        fi
         
         # 설치 후 버전 확인
         echo ""
@@ -138,7 +159,8 @@ case $REPLY in
         echo "=========================================="
         python -c "import sys; print(f'Python: {sys.version}')" 2>/dev/null || echo "Python: 확인 불가"
         python -c "import torch; print(f'PyTorch: {torch.__version__}')" 2>/dev/null || echo "PyTorch: 확인 불가"
-        python -c "import torchcodec; print(f'torchcodec: 설치됨')" 2>/dev/null || echo "torchcodec: 확인 불가 (설치 후 확인 필요)"
+        python -c "import torchaudio; print(f'torchaudio: {torchaudio.__version__}')" 2>/dev/null || echo "torchaudio: 확인 불가"
+        python -c "import torchcodec; print(f'torchcodec: 설치됨')" 2>/dev/null || echo "torchcodec: 확인 불가"
         echo ""
         
         # systemd 서비스 생성
@@ -327,22 +349,62 @@ EOF
         # ⚠️ 버전 호환성 경고
         echo ""
         echo "⚠️  매우 중요: Python, PyTorch, torchcodec 버전 호환성"
-        echo "   의존성 재설치 시 기존 PyTorch 버전이 유지됩니다"
+        echo "   설정된 버전: Python 3.11, PyTorch 2.7.0"
         echo "   버전 호환성 문제가 있다면 완전 재설치(옵션 2)를 권장합니다"
         echo "   공식 문서 참고: https://github.com/RVC-Boss/GPT-SoVITS"
         echo ""
         
-        echo "1. requirements.txt만"
-        echo "2. extra-req.txt + requirements.txt (권장)"
-        echo "3. pip 캐시 정리 후 재설치"
-        echo "4. 전체 재설치 (pip 업그레이드 포함)"
+        # 현재 PyTorch CUDA 버전 확인
+        CURRENT_CUDA=$(python -c "import torch; print('cu' + torch.version.cuda.replace('.', '')[:2] if torch.cuda.is_available() else 'cpu')" 2>/dev/null || echo "cu128")
+        echo "현재 PyTorch CUDA 버전: $CURRENT_CUDA"
+        echo ""
+        
+        echo "1. requirements.txt만 (PyTorch 유지)"
+        echo "2. PyTorch 2.7.0 + extra-req.txt + requirements.txt (권장)"
+        echo "3. pip 캐시 정리 후 PyTorch 2.7.0 + 전체 재설치"
+        echo "4. 전체 재설치 (pip 업그레이드 + PyTorch 2.7.0 포함)"
         read -p "선택 (1-4): " -n 1 -r
         echo
         case $REPLY in
-            1) pip install --upgrade --force-reinstall -r requirements.txt ;;
-            2) pip install --upgrade --force-reinstall -r extra-req.txt --no-deps && pip install --upgrade --force-reinstall -r requirements.txt ;;
-            3) pip cache purge && pip install --upgrade --force-reinstall -r extra-req.txt --no-deps && pip install --upgrade --force-reinstall -r requirements.txt ;;
-            4) pip install --upgrade pip setuptools wheel && pip cache purge && pip install --upgrade --force-reinstall -r extra-req.txt --no-deps && pip install --upgrade --force-reinstall -r requirements.txt ;;
+            1) 
+                pip install --upgrade --force-reinstall -r requirements.txt 
+                ;;
+            2) 
+                echo "PyTorch 2.7.0 재설치 중..."
+                if [ "$CURRENT_CUDA" = "cpu" ]; then
+                    pip install --upgrade --force-reinstall torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+                else
+                    pip install --upgrade --force-reinstall torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/$CURRENT_CUDA
+                fi
+                pip install --upgrade --force-reinstall torchcodec
+                pip install --upgrade --force-reinstall -r extra-req.txt --no-deps
+                pip install --upgrade --force-reinstall -r requirements.txt 
+                ;;
+            3) 
+                pip cache purge
+                echo "PyTorch 2.7.0 재설치 중..."
+                if [ "$CURRENT_CUDA" = "cpu" ]; then
+                    pip install --upgrade --force-reinstall torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+                else
+                    pip install --upgrade --force-reinstall torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/$CURRENT_CUDA
+                fi
+                pip install --upgrade --force-reinstall torchcodec
+                pip install --upgrade --force-reinstall -r extra-req.txt --no-deps
+                pip install --upgrade --force-reinstall -r requirements.txt 
+                ;;
+            4) 
+                pip install --upgrade pip setuptools wheel
+                pip cache purge
+                echo "PyTorch 2.7.0 재설치 중..."
+                if [ "$CURRENT_CUDA" = "cpu" ]; then
+                    pip install --upgrade --force-reinstall torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+                else
+                    pip install --upgrade --force-reinstall torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/$CURRENT_CUDA
+                fi
+                pip install --upgrade --force-reinstall torchcodec
+                pip install --upgrade --force-reinstall -r extra-req.txt --no-deps
+                pip install --upgrade --force-reinstall -r requirements.txt 
+                ;;
         esac
         
         # 재설치 후 버전 확인
@@ -350,6 +412,7 @@ EOF
         echo "설치된 버전 확인:"
         python -c "import sys; print(f'Python: {sys.version}')" 2>/dev/null || echo "Python: 확인 불가"
         python -c "import torch; print(f'PyTorch: {torch.__version__}')" 2>/dev/null || echo "PyTorch: 확인 불가"
+        python -c "import torchaudio; print(f'torchaudio: {torchaudio.__version__}')" 2>/dev/null || echo "torchaudio: 확인 불가"
         python -c "import torchcodec; print(f'torchcodec: 설치됨')" 2>/dev/null || echo "torchcodec: 확인 불가"
         echo ""
         echo "✅ 의존성 재설치 완료"
