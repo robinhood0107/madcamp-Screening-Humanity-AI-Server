@@ -1,0 +1,15 @@
+[Unit]
+Description=GPT-SoVITS Training API Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/GPT-SoVITS
+ExecStart=/root/miniforge3/envs/GPTSoVits/bin/python -m uvicorn training_api:app --host 0.0.0.0 --port 10002
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

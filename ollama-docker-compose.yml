@@ -1,0 +1,33 @@
+version: '3.8'
+services:
+  # Ollama 서버 (사전 다운로드 GGUF: GLM-4.7-Flash-UD-Q4_K_XL.gguf)
+  ollama-server:
+    image: ollama/ollama:latest
+    container_name: ollama-server
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      # Ollama 데이터 (생성된 모델 매니페스트 등)
+      - ollama-data:/root/.ollama
+      # GGUF 디렉터리 마운트 (GLM-4.7-Flash-UD-Q4_K_XL.gguf 포함)
+      # - 프로젝트 내: ./root/models
+      # - 리눅스 호스트 /root/models: /root/models:/models 로 변경
+      - ./root/models:/models:ro
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    ports:
+      - "11434:11434"  # Ollama API
+    restart: unless-stopped
+    # 모델 등록 (컨테이너 기동 후 최초 1회):
+    #   docker exec -it ollama-server ollama create glm-4.7-flash -f /models/GLM-4.7-Flash-UD-Q4_K_XL.gguf
+    # 테스트: docker exec -it ollama-server ollama run glm-4.7-flash "안녕"
+
+volumes:
+  ollama-data:
+    driver: local

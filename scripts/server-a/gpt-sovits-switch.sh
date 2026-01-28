@@ -1,7 +1,17 @@
 #!/bin/bash
 # Server A - GPT-SoVITS 서비스 전환 스크립트 (api_v2.py ↔ webui.py)
+#
+# 사용: ./gpt-sovits-switch.sh [명령]
+#   명령: api | webui | status | stop | --help(-h)
+#
+# 키워드 단축어: 아래를 ~/.bashrc에 추가 후 source ~/.bashrc
+#   alias gpt-switch='/path/to/scripts/server-a/gpt-sovits-switch.sh'
 
 set -e
+
+# 스크립트 절대 경로 (alias 등록 안내용)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 
 # 색상 정의
 GREEN='\033[0;32m'
@@ -146,26 +156,56 @@ stop_all() {
     show_status
 }
 
-# 사용법 표시
+# 사용법 표시 (--help 스타일, status 미실행)
+show_help() {
+    echo ""
+    echo -e "${BLUE}GPT-SoVITS 서비스 전환 스크립트${NC}"
+    echo "  api_v2.py (API) ↔ webui.py (WebUI) 모드 전환"
+    echo ""
+    echo -e "${YELLOW}사용법:${NC}"
+    echo "  $0 <명령>"
+    echo "  $0 --help | -h | help"
+    echo ""
+    echo -e "${YELLOW}명령어:${NC}"
+    echo "  api     API 모드: api_v2.py (포트 9880) 실행, webui 중지"
+    echo "  webui   WebUI 모드: webui.py (9872/9874) 실행, api 중지"
+    echo "  status  현재 서비스·포트 상태 확인"
+    echo "  stop    모든 GPT-SoVITS 서비스 중지"
+    echo ""
+    echo -e "${YELLOW}키워드 단축어 등록 (선택):${NC}"
+    echo "  아래를 ~/.bashrc에 추가하면 'gpt-switch'로 실행 가능합니다."
+    echo ""
+    echo "  alias gpt-switch='$SCRIPT_PATH'"
+    echo ""
+    echo "  등록 후: source ~/.bashrc"
+    echo ""
+    echo -e "${YELLOW}예시:${NC}"
+    echo "  $0 api     # API 모드로 전환"
+    echo "  $0 status  # 상태 확인"
+    echo "  $0 -h      # 도움말"
+    echo ""
+}
+
+# 사용법 + 상태 한 번에 (인자 없을 때)
 show_usage() {
-    echo ""
-    echo -e "${BLUE}=========================================="
-    echo "GPT-SoVITS 서비스 전환 스크립트"
-    echo -e "==========================================${NC}"
-    echo ""
-    echo "사용법: $0 {api|webui|status|stop}"
-    echo ""
-    echo "명령어:"
-    echo "  api     - api_v2.py (포트 9880) 실행, webui.py 중지"
-    echo "  webui   - webui.py (포트 9872/9874) 실행, api_v2.py 중지"
-    echo "  status  - 현재 서비스 상태 확인"
-    echo "  stop    - 모든 GPT-SoVITS 서비스 중지"
-    echo ""
+    show_help
     show_status
 }
 
-# 메인 로직
-case "$1" in
+# 메인 로직: --help/-h/help 만 정규화, 나머지는 그대로 전달
+normalize_cmd() {
+    case "$1" in
+        -h|--help|help)  echo "help" ;;
+        *)               echo "$1"   ;;
+    esac
+}
+
+CMD=$(normalize_cmd "$1")
+
+case "$CMD" in
+    help)
+        show_help
+        ;;
     api)
         switch_to_api
         ;;
@@ -178,8 +218,13 @@ case "$1" in
     stop)
         stop_all
         ;;
-    *)
+    "")
         show_usage
+        exit 0
+        ;;
+    *)
+        echo -e "${RED}알 수 없는 명령: $1${NC}"
+        echo "  도움말: $0 --help"
         exit 1
         ;;
 esac
