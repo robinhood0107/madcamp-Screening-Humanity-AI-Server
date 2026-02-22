@@ -15,12 +15,13 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import os
 import shutil
 import aiofiles
 import wave
 import contextlib
+import logging
 from datetime import datetime
 
 # 오디오 처리용 pydub (pip install pydub, apt-get install ffmpeg)
@@ -37,6 +38,9 @@ app = FastAPI(
     version="1.1.0"
 )
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # CORS 설정 (Server B에서 호출 허용)
 app.add_middleware(
     CORSMiddleware,
@@ -46,8 +50,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 기본 경로 설정
-BASE_DIR = Path("/opt/GPT-SoVITS")
+DEFAULT_ROOT_CANDIDATES = [
+    "/workspace/GPT-SoVITS",  # Docker (sidecar)
+    "/opt/GPT-SoVITS",        # Host / systemd
+]
+
+
+def _looks_like_gpt_sovits_root(path: Path) -> bool:
+    return path.is_dir() and (path / "tools").exists() and (path / "GPT_SoVITS").exists()
+
+
+def resolve_base_dir() -> Tuple[Path, str, bool, List[str]]:
+    env_root = os.environ.get("GPT_SOVITS_ROOT", "").strip()
+    candidates: List[str] = []
+    if env_root:
+        candidates.append(env_root)
+    for candidate in DEFAULT_ROOT_CANDIDATES:
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    checked: List[str] = []
+    for candidate in candidates:
+        checked.append(candidate)
+        candidate_path = Path(candidate)
+        if _looks_like_gpt_sovits_root(candidate_path):
+            source = "env" if env_root and candidate == env_root else "auto"
+            return candidate_path, source, True, checked
+
+    fallback = Path(env_root) if env_root else Path(DEFAULT_ROOT_CANDIDATES[-1])
+    source = "env-fallback" if env_root else "fallback"
+    logger.warning(
+        "Could not auto-detect GPT-SoVITS root. Falling back to %s. Checked: %s",
+        str(fallback),
+        checked,
+    )
+    return fallback, source, False, checked
+
+
+# 기본 경로 설정 (Docker/Host 겸용)
+BASE_DIR, BASE_DIR_SOURCE, BASE_DIR_STRUCTURE_OK, BASE_DIR_CHECKED = resolve_base_dir()
 
 # GPT 모델 디렉토리 목록
 GPT_DIRS = [
@@ -620,7 +661,11 @@ async def health_check():
     """서비스 상태 확인"""
     return {
         "status": "healthy",
+        "resolved_root": str(BASE_DIR),
+        "root_source": BASE_DIR_SOURCE,
         "base_dir_exists": BASE_DIR.exists(),
+        "root_structure_ok": BASE_DIR_STRUCTURE_OK,
+        "pydub_available": PYDUB_AVAILABLE,
         "timestamp": datetime.now().isoformat()
     }
 

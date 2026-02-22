@@ -2,12 +2,16 @@ import requests
 import time
 import json
 import sys
+import os
 
 # Configuration
-API_URL = "http://localhost:10002"
-MODEL_NAME = "dry_run_test_01"
-UPLOAD_PATH = "/opt/GPT-SoVITS/ref_audio/target_voice_folder" # CHANGE THIS to a real path on Server A if needed, or create a dummy folder
-VERSION = "v2"
+API_URL = os.environ.get("TRAINING_API_URL", "http://localhost:10002").rstrip("/")
+MODEL_NAME = os.environ.get("TRAINING_TEST_MODEL_NAME", "dry_run_test_01")
+UPLOAD_PATH = os.environ.get(
+    "TRAINING_TEST_UPLOAD_PATH",
+    "/opt/GPT-SoVITS/ref_audio/target_voice_folder",  # CHANGE THIS to a real path if not dry-run
+)
+VERSION = os.environ.get("TRAINING_TEST_VERSION", "v2")
 
 def test_start_training():
     print(f"1. Sending Training Request (Dry Run)...")
@@ -20,13 +24,14 @@ def test_start_training():
     }
     
     try:
+        response = None
         response = requests.post(f"{API_URL}/api/train/start", json=payload)
         response.raise_for_status()
         print("   Success!", response.json())
         return True
     except requests.exceptions.RequestException as e:
         print(f"   Failed to start training: {e}")
-        if response.content:
+        if response is not None and response.content:
             print(f"   Response: {response.content.decode()}")
         return False
 

@@ -17,6 +17,31 @@ Avatar Forge 프로젝트의 AI 서버 구현
 
 - [최종 통합 명세서 (FINALFINAL.md)](docs/FINALFINAL.md) - 전체 프로젝트 명세
 - [Phase 5 설정 가이드](docs/PHASE5_SETUP.md) - NVIDIA Container Toolkit 설치 및 모델 파일 준비
+- [GPT-SoVITS 자동화 구성 가이드](server-a-scripts-Gpt-sovits_inside/자동화.md) - Server A 자동화 API 구성/포트/운영 모드 정리
+- [GPT-SoVITS 자동화 실행법](server-a-scripts-Gpt-sovits_inside/실행법.md) - Host/Conda + Docker Sidecar 실행 절차
+
+## 🔧 GPT-SoVITS 운영 방식 (업데이트)
+
+현재 GPT-SoVITS 관련 구성은 두 가지 운영 방식을 함께 지원합니다.
+
+- Docker 기반 운영 (권장)
+  - 최상위 `docker-compose.yaml` 사용
+  - GPT-SoVITS 본체(`gpt-sovits-cu128`) + 자동화 API sidecar 2개(`10001`, `10002`)
+  - 자동화 API:
+    - `gpt-sovits-files-api` (포트 `10001`)
+    - `gpt-sovits-training-api` (포트 `10002`)
+- Host/Conda 기반 운영 (레거시 유지)
+  - `docker-compose.conda.yaml` 보존
+  - `/opt/GPT-SoVITS` + `systemd` (`service_manager.sh`) 기반 운영
+
+### GPT-SoVITS Docker 이미지 버전 메모
+
+- `cu128-20260209-e4ae04` (주석으로 최상위 `docker-compose.yaml`에 명시)
+
+### 포트 요약
+
+- GPT-SoVITS 본체: `9871`, `9872`, `9873`, `9874`, `9880`
+- 자동화 API: `10001`(파일 스캐너), `10002`(학습 API)
 
 ## 🚀 Phase 5 빠른 시작
 
@@ -53,12 +78,30 @@ chmod +x scripts/server-b/verify-models.sh
 ├── docs/                    # 문서
 │   ├── FINALFINAL.md       # 최종 통합 명세서
 │   └── PHASE5_SETUP.md     # Phase 5 설정 가이드
+├── server-a-scripts-Gpt-sovits_inside/   # GPT-SoVITS 자동화 API/운영 스크립트/문서
+│   ├── 자동화.md
+│   ├── 실행법.md
+│   ├── training_api.py
+│   ├── file_scanner_api.py
+│   ├── service_manager.sh      # Host/systemd용
+│   ├── compose_manager.sh      # Docker Compose용
+│   └── docker/
+│       ├── Dockerfile.automation
+│       ├── run-file-scanner.sh
+│       └── run-training-api.sh
 ├── scripts/                 # 설치/설정 스크립트
 │   ├── server-a/           # GPU 서버 스크립트
 │   └── server-b/           # CPU 서버 스크립트
+├── ../docker-compose.yaml   # (repo root) Docker 기반 GPT-SoVITS 포함 메인 compose
+├── ../docker-compose.conda.yaml # (repo root) 기존 conda/비도커 GPT-SoVITS 전제 compose 보존본
 └── README.md
 ```
 
 ## 📝 상세 가이드
 
 자세한 설정 방법은 [Phase 5 설정 가이드](docs/PHASE5_SETUP.md)를 참조하세요.
+
+GPT-SoVITS 자동화/학습/파일 관리 관련 내용은 아래 문서를 우선 참고하세요.
+
+- [server-a-scripts-Gpt-sovits_inside/자동화.md](server-a-scripts-Gpt-sovits_inside/자동화.md)
+- [server-a-scripts-Gpt-sovits_inside/실행법.md](server-a-scripts-Gpt-sovits_inside/실행법.md)

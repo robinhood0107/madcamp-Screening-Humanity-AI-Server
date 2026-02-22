@@ -1,0 +1,26 @@
+FROM xxxxrt666/gpt-sovits:latest-cu128
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /workspace/GPT-SoVITS
+
+COPY docker/requirements-automation.txt /opt/gpt-sovits-automation/requirements-automation.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+RUN (python3 -m pip install --no-cache-dir -r /opt/gpt-sovits-automation/requirements-automation.txt \
+    || python -m pip install --no-cache-dir -r /opt/gpt-sovits-automation/requirements-automation.txt)
+
+COPY file_scanner_api.py /opt/gpt-sovits-automation/file_scanner_api.py
+COPY training_api.py /opt/gpt-sovits-automation/training_api.py
+COPY test_training.py /opt/gpt-sovits-automation/test_training.py
+COPY verify_streaming.py /opt/gpt-sovits-automation/verify_streaming.py
+COPY temp_runner.py /opt/gpt-sovits-automation/temp_runner.py
+COPY test_streaming.py /opt/gpt-sovits-automation/test_streaming.py
+COPY docker/run-file-scanner.sh /usr/local/bin/run-file-scanner.sh
+COPY docker/run-training-api.sh /usr/local/bin/run-training-api.sh
+RUN chmod +x /usr/local/bin/run-file-scanner.sh /usr/local/bin/run-training-api.sh
+
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 10001 10002

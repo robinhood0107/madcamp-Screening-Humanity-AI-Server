@@ -8,7 +8,7 @@ import asyncio
 import subprocess
 import traceback
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Body
 from pydantic import BaseModel
 from datetime import datetime
@@ -20,7 +20,48 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="GPT-SoVITS Training API")
 
 # --- Configuration ---
-GPT_SOVITS_ROOT = "/opt/GPT-SoVITS"  # Server A Path
+DEFAULT_ROOT_CANDIDATES = [
+    "/workspace/GPT-SoVITS",  # Docker (sidecar)
+    "/opt/GPT-SoVITS",        # Host / systemd
+]
+
+
+def _looks_like_gpt_sovits_root(path: str) -> bool:
+    return (
+        os.path.isdir(path)
+        and os.path.exists(os.path.join(path, "tools"))
+        and os.path.exists(os.path.join(path, "GPT_SoVITS"))
+    )
+
+
+def resolve_gpt_sovits_root() -> Tuple[str, str, bool, List[str]]:
+    env_root = os.environ.get("GPT_SOVITS_ROOT", "").strip()
+    candidates: List[str] = []
+    if env_root:
+        candidates.append(env_root)
+    for candidate in DEFAULT_ROOT_CANDIDATES:
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    checked = []
+    for candidate in candidates:
+        checked.append(candidate)
+        if _looks_like_gpt_sovits_root(candidate):
+            source = "env" if candidate == env_root and env_root else "auto"
+            return candidate, source, True, checked
+
+    # Fall back to env value if provided, otherwise host-style path.
+    fallback = env_root or DEFAULT_ROOT_CANDIDATES[-1]
+    source = "env-fallback" if env_root else "fallback"
+    logger.warning(
+        "Could not auto-detect GPT-SoVITS root. Falling back to %s. Checked: %s",
+        fallback,
+        checked,
+    )
+    return fallback, source, False, checked
+
+
+GPT_SOVITS_ROOT, ROOT_SOURCE, ROOT_STRUCTURE_OK, ROOT_CHECKED = resolve_gpt_sovits_root()
 PYTHON_EXE = sys.executable  # Use current python (Conda env)
 
 # Paths
@@ -31,9 +72,12 @@ CONFIGS_DIR = os.path.join(GPT_SOVITS_DIR, "configs")
 TEMP_ROOT = os.path.join(GPT_SOVITS_ROOT, "TEMP")
 LOGS_ROOT = os.path.join(GPT_SOVITS_ROOT, "logs")
 
-# Ensure required directories
-os.makedirs(TEMP_ROOT, exist_ok=True)
-os.makedirs(LOGS_ROOT, exist_ok=True)
+def ensure_runtime_dirs():
+    try:
+        os.makedirs(TEMP_ROOT, exist_ok=True)
+        os.makedirs(LOGS_ROOT, exist_ok=True)
+    except Exception as e:
+        logger.warning("Failed to ensure runtime dirs under %s: %s", GPT_SOVITS_ROOT, e)
 
 # Training Status Storage (In-memory for now)
 training_status: Dict[str, Dict] = {}
@@ -103,6 +147,13 @@ def check_paths():
 
 @app.on_event("startup")
 async def startup_event():
+    ensure_runtime_dirs()
+    logger.info(
+        "GPT-SoVITS root resolved to %s (source=%s, structure_ok=%s)",
+        GPT_SOVITS_ROOT,
+        ROOT_SOURCE,
+        ROOT_STRUCTURE_OK,
+    )
     ok, missing = check_paths()
     if not ok:
         logger.warning(f"⚠️  CRITICAL: Missing scripts: {missing}. The API may fail.")
@@ -542,7 +593,14 @@ async def training_pipeline(req: TrainRequest):
 @app.get("/api/health")
 async def health():
     """Server B /health/detailed 등에서 헬스 체크용. 200 반환으로 404 로그 노이즈 제거."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "resolved_root": GPT_SOVITS_ROOT,
+        "root_source": ROOT_SOURCE,
+        "root_exists": os.path.isdir(GPT_SOVITS_ROOT),
+        "root_structure_ok": ROOT_STRUCTURE_OK,
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 @app.post("/api/train/start")
