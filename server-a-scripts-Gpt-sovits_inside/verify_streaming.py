@@ -8,7 +8,12 @@ from temp_runner import run_subprocess
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
+# [역할]
+# 이 스크립트는 "stdout -> 파일 스트리밍 기록"이 실시간으로 되는지만 확인하는 회귀 테스트다.
+# training_api 전체를 돌리는 테스트가 아니라, 공통 subprocess runner의 로그 스트리밍 동작만 분리해서 확인한다.
+
 async def test_streaming():
+    # 여기서 보는 포인트는 '프로세스 완료 여부'보다 '중간 로그가 파일에 계속 append 되는지'다.
     print("Testing streaming...", flush=True)
     log_file = "test_stream.log"
     

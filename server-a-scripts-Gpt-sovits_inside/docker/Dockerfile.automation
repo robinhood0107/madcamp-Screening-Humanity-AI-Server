@@ -13,6 +13,7 @@ RUN (python3 -m pip install --no-cache-dir -r /opt/gpt-sovits-automation/require
 
 COPY file_scanner_api.py /opt/gpt-sovits-automation/file_scanner_api.py
 COPY training_api.py /opt/gpt-sovits-automation/training_api.py
+COPY gsv_automation /opt/gpt-sovits-automation/gsv_automation
 COPY test_training.py /opt/gpt-sovits-automation/test_training.py
 COPY verify_streaming.py /opt/gpt-sovits-automation/verify_streaming.py
 COPY temp_runner.py /opt/gpt-sovits-automation/temp_runner.py

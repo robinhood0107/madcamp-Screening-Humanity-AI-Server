@@ -105,3 +105,27 @@ GPT-SoVITS 자동화/학습/파일 관리 관련 내용은 아래 문서를 우�
 
 - [server-a-scripts-Gpt-sovits_inside/자동화.md](server-a-scripts-Gpt-sovits_inside/자동화.md)
 - [server-a-scripts-Gpt-sovits_inside/실행법.md](server-a-scripts-Gpt-sovits_inside/실행법.md)
+
+## 🧭 GPT-SoVITS 자동화 코드 유지보수 규칙 (요약)
+
+이번 리팩토링부터는 `server-a-scripts-Gpt-sovits_inside`를 아래 규칙으로 유지합니다.
+
+- 외부 계약 고정:
+  - 포트 `10001`, `10002`
+  - 엔드포인트 path/method
+  - 주요 응답 키(backend가 참조하는 값)
+  - 엔트리포인트 파일명 `training_api.py`, `file_scanner_api.py`
+- 리팩토링 방식:
+  - `Characterization(행동 고정)` -> `Extract Function` -> `모듈 추출` -> `회귀 검증`
+- 과분할 금지:
+  - 신규 helper 모듈은 `gsv_automation/` 내부 **6개 내외**로 제한
+  - 연관 기능끼리 묶어서 분리 (공통/runtime/process/http + training_core + file_core)
+- 주석 원칙:
+  - 함수 앞에 역할/이유/부작용/주의점 설명
+  - 핵심 줄에만 inline 주석
+  - “코드 그대로 읽는 주석” 금지
+
+상세 규칙/절차는 아래 문서에 분리 기록합니다.
+
+- 아키텍처/주석 규칙: `server-a-scripts-Gpt-sovits_inside/자동화.md`
+- 실행 순서/검증 체크리스트: `server-a-scripts-Gpt-sovits_inside/실행법.md`

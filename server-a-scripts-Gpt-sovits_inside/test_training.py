@@ -13,7 +13,13 @@ UPLOAD_PATH = os.environ.get(
 )
 VERSION = os.environ.get("TRAINING_TEST_VERSION", "v2")
 
+# [역할]
+# 이 스크립트는 training API의 "기본 계약" 회귀 테스트다.
+# 특히 dry_run 기준으로 start -> status -> log 흐름이 깨지지 않는지 확인한다.
+# (실제 학습 성능/모델 품질 검증 스크립트는 아님)
+
 def test_start_training():
+    # dry_run=True로 보내서 파이프라인 단계/상태 전이/로그 생성 계약만 빠르게 검증한다.
     print(f"1. Sending Training Request (Dry Run)...")
     payload = {
         "model_name": MODEL_NAME,
