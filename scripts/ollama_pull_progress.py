@@ -13,6 +13,7 @@ Docker 컨테이너 밖에서 실행: 포트 11434가 호스트에 매핑되어 
 """
 import argparse
 import json
+import os
 import sys
 import urllib.request
 import urllib.error
@@ -21,7 +22,11 @@ import urllib.error
 def main():
     parser = argparse.ArgumentParser(description="Ollama pull 진행률 표시")
     parser.add_argument("model", nargs="?", default="glm-4.7-flash", help="모델 이름 (기본: glm-4.7-flash)")
-    parser.add_argument("--host", default="localhost:11434", help="Ollama 호스트 (기본: localhost:11434)")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("OLLAMA_HOST", "localhost:11434"),
+        help="Ollama 호스트 (기본: localhost:11434, env: OLLAMA_HOST)",
+    )
     args = parser.parse_args()
 
     h = args.host.strip()

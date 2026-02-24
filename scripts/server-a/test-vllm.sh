@@ -3,8 +3,9 @@
 # vLLM 서버 간단 테스트 스크립트
 # 사용법: bash scripts/server-a/test-vllm.sh
 
-VLLM_URL="http://localhost:8002"
+VLLM_URL="${VLLM_URL:-http://localhost:8002}"
 VLLM_CONTAINER="vllm-server"
+export VLLM_URL
 
 echo "=========================================="
 echo "vLLM 서버 테스트"
@@ -33,12 +34,15 @@ echo ""
 # 3. 간단한 채팅 테스트
 echo "3. 채팅 테스트..."
 python3 << 'EOF'
+import os
 import requests
 import json
 
+VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8002").rstrip("/")
+
 try:
     response = requests.post(
-        "http://localhost:8002/v1/chat/completions",
+        f"{VLLM_URL}/v1/chat/completions",
         headers={"Content-Type": "application/json"},
         json={
             "model": "unsloth/gemma-3-27b-it-bnb-4bit",
@@ -67,8 +71,11 @@ echo ""
 # 4. 긴 컨텍스트 테스트 (4096 토큰)
 echo "4. 긴 컨텍스트 테스트 (4096 토큰)..."
 python3 << 'EOF'
+import os
 import requests
 import json
+
+VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8002").rstrip("/")
 
 # 긴 텍스트 생성 (약 2000 토큰)
 # 20번 반복 시 4124 토큰이므로, 9번 반복으로 조정 (약 1856 토큰)
@@ -84,7 +91,7 @@ long_text = ("오늘은 정말 좋은 날씨입니다. 하늘이 맑고 바람�
 
 try:
     response = requests.post(
-        "http://localhost:8002/v1/chat/completions",
+        f"{VLLM_URL}/v1/chat/completions",
         headers={"Content-Type": "application/json"},
         json={
             "model": "unsloth/gemma-3-27b-it-bnb-4bit",
@@ -121,10 +128,13 @@ echo ""
 # 5. 동시 요청 테스트 (max_num_seqs=12)
 echo "5. 동시 요청 테스트 (12명)..."
 python3 << 'EOF'
+import os
 import requests
 import json
 import threading
 import time
+
+VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8002").rstrip("/")
 
 results = []
 lock = threading.Lock()
@@ -132,7 +142,7 @@ lock = threading.Lock()
 def send_request(i):
     try:
         response = requests.post(
-            "http://localhost:8002/v1/chat/completions",
+            f"{VLLM_URL}/v1/chat/completions",
             headers={"Content-Type": "application/json"},
             json={
                 "model": "unsloth/gemma-3-27b-it-bnb-4bit",

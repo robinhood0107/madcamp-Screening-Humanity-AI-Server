@@ -15,8 +15,11 @@ Avatar Forge 프로젝트의 AI 서버 구현
 
 ## 📚 문서
 
-- [최종 통합 명세서 (FINALFINAL.md)](docs/FINALFINAL.md) - 전체 프로젝트 명세
-- [Phase 5 설정 가이드](docs/PHASE5_SETUP.md) - NVIDIA Container Toolkit 설치 및 모델 파일 준비
+- [루트 docs 허브 (통폐합)](../docs/README.md) - 현재 기준 문서 색인
+- [운영 구축 가이드](../docs/01_운영_구축_가이드.md) - 실행 모드, GPT-SoVITS 운영, 점검 절차
+- [API 연동 가이드](../docs/02_API_연동_가이드.md) - BACK/Server A API 연동 계약 정리
+- [데이터 모델 스키마](../docs/03_데이터_모델_스키마.md) - BACK 실제 모델 기준 스키마
+- [로드맵/이력/정합성](../docs/04_로드맵_이력_정합성.md) - 변경 이력/정합성/아카이브 안내
 - [GPT-SoVITS 자동화 구성 가이드](server-a-scripts-Gpt-sovits_inside/자동화.md) - Server A 자동화 API 구성/포트/운영 모드 정리
 - [GPT-SoVITS 자동화 실행법](server-a-scripts-Gpt-sovits_inside/실행법.md) - Host/Conda + Docker Sidecar 실행 절차
 
@@ -75,9 +78,13 @@ chmod +x scripts/server-b/verify-models.sh
 
 ```
 .
-├── docs/                    # 문서
-│   ├── FINALFINAL.md       # 최종 통합 명세서
-│   └── PHASE5_SETUP.md     # Phase 5 설정 가이드
+├── ../docs/                 # (repo root) 통폐합 문서 허브/기준 문서
+│   ├── README.md
+│   ├── 01_운영_구축_가이드.md
+│   ├── 02_API_연동_가이드.md
+│   ├── 03_데이터_모델_스키마.md
+│   ├── 04_로드맵_이력_정합성.md
+│   └── archive/legacy_20260222/   # 기존 루트 문서 원본 보존
 ├── server-a-scripts-Gpt-sovits_inside/   # GPT-SoVITS 자동화 API/운영 스크립트/문서
 │   ├── 자동화.md
 │   ├── 실행법.md
@@ -99,7 +106,7 @@ chmod +x scripts/server-b/verify-models.sh
 
 ## 📝 상세 가이드
 
-자세한 설정 방법은 [Phase 5 설정 가이드](docs/PHASE5_SETUP.md)를 참조하세요.
+자세한 설정 방법은 [루트 docs 허브](../docs/README.md)와 [운영 구축 가이드](../docs/01_운영_구축_가이드.md)를 먼저 참조하세요.
 
 GPT-SoVITS 자동화/학습/파일 관리 관련 내용은 아래 문서를 우선 참고하세요.
 
@@ -129,3 +136,13 @@ GPT-SoVITS 자동화/학습/파일 관리 관련 내용은 아래 문서를 우�
 
 - 아키텍처/주석 규칙: `server-a-scripts-Gpt-sovits_inside/자동화.md`
 - 실행 순서/검증 체크리스트: `server-a-scripts-Gpt-sovits_inside/실행법.md`
+
+## 🌐 도메인/URL 환경변수 관리 규칙 (요약)
+
+세 프로젝트(FRONT/BACK/AI-Server)에서 서비스 URL/도메인은 아래 원칙으로 관리합니다.
+
+- `FRONT`: 컴포넌트에서 직접 `process.env.NEXT_PUBLIC_API_URL || ...` 쓰지 않고 `lib/config/runtime.ts` 경유
+- `BACK`: route/service 레벨에서 `localhost` fallback 금지, `app/core/config.py`의 `Settings`를 단일 진실 원천으로 사용
+- `docker-compose*.yaml`: 공개 접근 URL/내부 오버라이드 URL은 가능한 범위에서 `${VAR:-default}` interpolation 사용
+- 테스트 스크립트: URL 기본값은 `VAR=${VAR:-default}` 또는 env fallback으로 관리
+- Gemini 비밀키는 `FRONT`/`AI-Server`가 아니라 `BACK`(`madcamp-Screening-Humanity-BACK/.env`의 `GEMINI_API_KEY`)에서만 관리
